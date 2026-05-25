@@ -1,6 +1,11 @@
 import { getBrawlerDisplayName, translateRole } from '../data/translations';
 import type { Brawler } from '../types/domain';
 
+type SortableBrawler = Brawler & {
+  brawlerName?: string;
+  heroName?: string;
+};
+
 interface Props {
   brawlers: Brawler[];
   selectedIds: string[];
@@ -16,10 +21,16 @@ export function BrawlerPicker({ brawlers, selectedIds, disabledIds, search, onTo
     const zhName = getBrawlerDisplayName(brawler);
     return !normalized || brawler.name.toLowerCase().includes(normalized) || zhName.toLowerCase().includes(normalized) || brawler.id.includes(normalized);
   });
+  const sortedBrawlers = [...filtered].sort((a, b) =>
+    getHeroSortName(a).localeCompare(getHeroSortName(b), 'zh-Hans-CN', {
+      sensitivity: 'base',
+      numeric: true
+    })
+  );
 
   return (
     <div className="grid grid-cols-4 gap-2">
-      {filtered.map((brawler) => {
+      {sortedBrawlers.map((brawler) => {
         const selected = selectedIds.includes(brawler.id);
         const disabled = !selected && (disabledIds.includes(brawler.id) || selectedIds.length >= limit);
         return (
@@ -47,4 +58,13 @@ export function BrawlerPicker({ brawlers, selectedIds, disabledIds, search, onTo
       })}
     </div>
   );
+}
+
+function getHeroSortName(hero: SortableBrawler) {
+  return hero.displayNameZh?.trim()
+    || hero.name?.trim()
+    || hero.brawlerName?.trim()
+    || hero.heroName?.trim()
+    || hero.id
+    || '';
 }
