@@ -11,6 +11,7 @@ import type {
   StrategyMode,
   TeamAnalysis
 } from '../types/domain';
+import { draftWeights, getDraftStage, getDraftStageReason } from './draft';
 
 type RoleFlag =
   | 'tank'
@@ -500,13 +501,13 @@ export function generateCounterReasons(candidate: Brawler, enemyPicks: Brawler[]
   if (enemyProfile.hasHealer && hasTag(tags, 'burst_damage', 'safe_dps', 'crowd_control')) {
     reasons.push(`敌方有续航点，${displayName(candidate)} 可以用爆发、持续伤害或控制打断敌方节奏。`);
   }
-  if (allyProfile.lacksWallBreak && hasTag(tags, 'wall_break')) {
+  if (allyProfile.brawlers.length && allyProfile.lacksWallBreak && hasTag(tags, 'wall_break')) {
     reasons.push(`我方缺少破墙能力，${displayName(candidate)} 能补足地形处理。`);
   }
-  if (allyProfile.lacksControl && hasTag(tags, 'area_control', 'mid_control', 'crowd_control')) {
+  if (allyProfile.brawlers.length && allyProfile.lacksControl && hasTag(tags, 'area_control', 'mid_control', 'crowd_control')) {
     reasons.push(`我方缺少控场，${displayName(candidate)} 能补充中路和关键区域压制。`);
   }
-  if (allyProfile.lacksDamage && hasTag(tags, 'burst_damage', 'safe_dps')) {
+  if (allyProfile.brawlers.length && allyProfile.lacksDamage && hasTag(tags, 'burst_damage', 'safe_dps')) {
     reasons.push(`我方输出不足，${displayName(candidate)} 能补稳定伤害或爆发窗口。`);
   }
 
@@ -533,6 +534,25 @@ export function calculateMetaScore(brawler: Brawler, considerMeta: boolean) {
   return considerMeta ? tierScore[brawler.metaTier] : 0;
 }
 
+function calculateSafetyScore(candidate: Brawler, enemyProfile: CompositionProfile) {
+  let score = candidate.stats.survivability + candidate.stats.antiAssassin + candidate.stats.sustain;
+  const weaknessTags = inferWeaknessTags(candidate);
+  if (enemyProfile.hasAssassin && hasTag(weaknessTags, 'weak_to_assassin', 'poor_escape', 'low_hp')) score -= 10;
+  if (enemyProfile.hasLongRange && hasTag(weaknessTags, 'weak_to_long_range', 'short_range')) score -= 6;
+  if (enemyProfile.hasThrower && hasTag(weaknessTags, 'weak_to_thrower')) score -= 5;
+  if (candidate.stats.range >= 6 && candidate.stats.survivability >= 5) score += 4;
+  return clampScore(score);
+}
+
+function calculateVersatilityScore(candidate: Brawler) {
+  const tags = inferBrawlerTags(candidate);
+  const modeFlex = candidate.goodModes?.length ?? 0;
+  const roleFlex = candidate.roles.length;
+  const utilityTags = ['wall_break', 'area_control', 'mid_control', 'safe_dps', 'sustain', 'anti_assassin', 'anti_tank'];
+  const utility = utilityTags.filter((tag) => tags.has(tag)).length;
+  return clampScore(roleFlex * 5 + modeFlex * 3 + utility * 4 + (candidate.mapPreferences?.length ?? 0) * 2);
+}
+
 export function calculatePickScore(
   candidate: Brawler,
   map: BrawlMap,
@@ -552,22 +572,29 @@ export function calculatePickScore(
   const allyNeed = calculateAllyNeedScore(candidate, allyProfile, map);
   const knowledgeScore = calculateKnowledgeScore(candidate, map, knowledge);
   const meta = calculateMetaScore(candidate, draft.considerMeta);
+  const safety = calculateSafetyScore(candidate, enemyProfile);
+  const versatility = calculateVersatilityScore(candidate);
   const generatedCounterReasons = generateCounterReasons(candidate, enemyBrawlers, enemyProfile, allyProfile);
   const counterScore = directCounter.score + tagCounter.score;
   const riskScore = Math.max(0, -directCounter.score) + directCounter.risks.length * 4 + tagCounter.risks.length * 4;
-  const weights = strategyWeights[draft.strategyMode];
+  const strategy = strategyWeights[draft.strategyMode];
+  const stage = getDraftStage(draft);
+  const weights = draftWeights[stage];
   const total = clampScore(
-    mapFit.score * weights.map +
-      modeFit.score * weights.mode +
-      synergy.score * weights.synergy +
-      directCounter.score * weights.directCounter +
-      tagCounter.score * weights.tagCounter +
-      allyNeed.score * weights.allyNeed +
-      meta * weights.meta +
-      knowledgeScore.score * weights.knowledge -
-      riskScore * weights.risk
+    mapFit.score * weights.mapFit * strategy.map +
+      modeFit.score * weights.modeFit * strategy.mode +
+      synergy.score * weights.synergy * strategy.synergy +
+      directCounter.score * weights.directCounter * strategy.directCounter +
+      tagCounter.score * weights.tagCounter * strategy.tagCounter +
+      allyNeed.score * weights.allyNeed * strategy.allyNeed +
+      safety * weights.safety +
+      versatility * weights.versatility +
+      meta * weights.meta * strategy.meta +
+      knowledgeScore.score * strategy.knowledge * 0.6 -
+      riskScore * weights.risk * strategy.risk
   );
   const reasons = [
+    getDraftStageReason(draft),
     ...directCounter.reasons,
     ...tagCounter.reasons,
     ...generatedCounterReasons,
@@ -587,6 +614,9 @@ export function calculatePickScore(
     tagCounter: Math.round(tagCounter.score),
     allyNeed: Math.round(allyNeed.score),
     risk: Math.round(riskScore),
+    safety: Math.round(safety),
+    versatility: Math.round(versatility),
+    draftStage: stage,
     meta: Math.round(meta),
     knowledge: Math.round(knowledgeScore.score),
     total: Math.round(total),
@@ -602,7 +632,19 @@ export function calculateBanScore(candidate: Brawler, map: BrawlMap, draft: Draf
   const allyBrawlers = draft.allyPicks.map((id) => allBrawlers.find((b) => b.id === id)).filter(Boolean) as Brawler[];
   const reasons: string[] = [];
   const protectsAgainst: string[] = [];
-  let threat = baseScore.mapFit * 0.35 + baseScore.modeFit * 0.35 + baseScore.meta * 1.2 + baseScore.counter * 0.35;
+  let allyWeaknessThreat = 0;
+  for (const ally of allyBrawlers) {
+    const enemyAnswer = calculateTagCounterScore(candidate, buildCompositionProfile([ally]));
+    allyWeaknessThreat += Math.max(0, enemyAnswer.score);
+  }
+  const weights = draftWeights.ban;
+  let threat =
+    baseScore.meta * weights.meta +
+    baseScore.mapFit * weights.mapFit +
+    baseScore.modeFit * weights.modeFit +
+    baseScore.counter * weights.directCounter +
+    allyWeaknessThreat * weights.allyNeed +
+    baseScore.safety * 0.08;
 
   for (const ally of allyBrawlers) {
     const relation = candidate.counters?.find((item) => relationTargetId(item) === ally.id);
@@ -622,6 +664,10 @@ export function calculateBanScore(candidate: Brawler, map: BrawlMap, draft: Draf
   if (candidate.metaTier === 'S') reasons.push('当前版本强度高，容易被首抢。');
   if (baseScore.mapFit > 55) reasons.push('地图适配度高。');
   if (baseScore.modeFit > 55) reasons.push('模式收益高。');
+  if (draft.nextAction.endsWith('_ban')) reasons.unshift(getDraftStageReason(draft));
+  if (allyWeaknessThreat > 0) reasons.push('该英雄可能克制我方已选体系，禁用可以降低后续 BP 风险。');
+  if (baseScore.counter > 15) reasons.push('该英雄在当前对局中具备明显威胁，适合作为拒抢或防克制禁用。');
+  if (!reasons.length) reasons.push('禁用建议基于当前地图适配、模式收益和潜在首抢威胁综合计算。');
   reasons.push(...protectsAgainst);
 
   return { score: Math.round(clampScore(threat)), reasons: reasons.slice(0, 5), protectsAgainst };

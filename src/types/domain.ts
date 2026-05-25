@@ -10,6 +10,9 @@ export type GameMode =
 
 export type StrategyMode = 'balanced' | 'safe' | 'aggressive' | 'pro' | 'ladder';
 export type MetaTier = 'S' | 'A' | 'B' | 'C' | 'D';
+export type TeamSide = 'blue' | 'red';
+export type DraftPhase = 'ban' | 'pick' | 'complete';
+export type DraftAction = 'ally_ban' | 'enemy_ban' | 'ally_pick' | 'enemy_pick' | 'complete';
 export type BrawlerRole =
   | 'mid'
   | 'lane'
@@ -130,10 +133,18 @@ export interface KnowledgeEntry {
 }
 
 export interface DraftState {
+  teamSide: TeamSide;
+  currentPhase: DraftPhase;
+  currentStep: number;
+  blueBans: string[];
+  redBans: string[];
+  bluePicks: string[];
+  redPicks: string[];
   allyPicks: string[];
   enemyPicks: string[];
   allyBans: string[];
   enemyBans: string[];
+  nextAction: DraftAction;
   considerMeta: boolean;
   strategyMode: StrategyMode;
 }
@@ -147,6 +158,9 @@ export interface ScoreBreakdown {
   tagCounter: number;
   allyNeed: number;
   risk: number;
+  safety: number;
+  versatility: number;
+  draftStage: string;
   meta: number;
   knowledge: number;
   total: number;

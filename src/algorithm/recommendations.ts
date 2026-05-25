@@ -1,8 +1,10 @@
 import { calculateBanScore, calculatePickScore, analyzeTeam } from './scoring';
+import { normalizeDraftState } from './draft';
 import type { BanRecommendation, BrawlMap, Brawler, DraftState, KnowledgeEntry, PickRecommendation } from '../types/domain';
 
 function unavailableIds(draft: DraftState) {
-  return new Set([...draft.allyPicks, ...draft.enemyPicks, ...draft.allyBans, ...draft.enemyBans]);
+  const normalized = normalizeDraftState(draft);
+  return new Set([...normalized.allyPicks, ...normalized.enemyPicks, ...normalized.allyBans, ...normalized.enemyBans]);
 }
 
 export function recommendPicks(
@@ -12,12 +14,13 @@ export function recommendPicks(
   knowledge: KnowledgeEntry[],
   limit = 6
 ): PickRecommendation[] {
-  const unavailable = unavailableIds(draft);
+  const normalizedDraft = normalizeDraftState(draft);
+  const unavailable = unavailableIds(normalizedDraft);
   return brawlers
     .filter((brawler) => !unavailable.has(brawler.id))
     .map((brawler) => ({
       brawler,
-      score: calculatePickScore(brawler, map, draft, brawlers, knowledge)
+      score: calculatePickScore(brawler, map, normalizedDraft, brawlers, knowledge)
     }))
     .sort((a, b) => b.score.total - a.score.total)
     .slice(0, limit);
@@ -30,7 +33,8 @@ export function recommendCounterPicks(
   knowledge: KnowledgeEntry[],
   limit = 4
 ): PickRecommendation[] {
-  return recommendPicks(brawlers, map, { ...draft, strategyMode: 'aggressive' }, knowledge, brawlers.length)
+  const normalizedDraft = normalizeDraftState(draft);
+  return recommendPicks(brawlers, map, { ...normalizedDraft, strategyMode: 'aggressive' }, knowledge, brawlers.length)
     .filter((item) => item.score.counter > 0 || item.score.reasons.some((reason) => reason.includes('克制')))
     .slice(0, limit);
 }
@@ -42,12 +46,13 @@ export function recommendBans(
   knowledge: KnowledgeEntry[],
   limit = 5
 ): BanRecommendation[] {
-  const unavailable = new Set([...draft.allyPicks, ...draft.enemyPicks, ...draft.allyBans, ...draft.enemyBans]);
+  const normalizedDraft = normalizeDraftState(draft);
+  const unavailable = new Set([...normalizedDraft.allyPicks, ...normalizedDraft.enemyPicks, ...normalizedDraft.allyBans, ...normalizedDraft.enemyBans]);
   return brawlers
     .filter((brawler) => !unavailable.has(brawler.id))
     .map((brawler) => ({
       brawler,
-      ...calculateBanScore(brawler, map, draft, brawlers, knowledge)
+      ...calculateBanScore(brawler, map, normalizedDraft, brawlers, knowledge)
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
@@ -69,7 +74,8 @@ export function recommendCompositions(picks: PickRecommendation[]) {
 }
 
 export function buildAnalysis(brawlers: Brawler[], map: BrawlMap, draft: DraftState) {
-  const ally = draft.allyPicks.map((id) => brawlers.find((b) => b.id === id)).filter(Boolean) as Brawler[];
-  const enemy = draft.enemyPicks.map((id) => brawlers.find((b) => b.id === id)).filter(Boolean) as Brawler[];
+  const normalizedDraft = normalizeDraftState(draft);
+  const ally = normalizedDraft.allyPicks.map((id) => brawlers.find((b) => b.id === id)).filter(Boolean) as Brawler[];
+  const enemy = normalizedDraft.enemyPicks.map((id) => brawlers.find((b) => b.id === id)).filter(Boolean) as Brawler[];
   return analyzeTeam(ally, enemy, map);
 }

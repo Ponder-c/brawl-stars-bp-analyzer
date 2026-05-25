@@ -1,10 +1,12 @@
 import { AlertTriangle, Ban, Crosshair, ShieldCheck, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { getDraftStage, getDraftStageLabel, getDraftStageReason, sideLabel } from '../algorithm/draft';
 import { getBrawlerDisplayName, translateReason, translateRole, translateTag, zhCN } from '../data/translations';
-import type { BanRecommendation, Brawler, PickRecommendation } from '../types/domain';
+import type { BanRecommendation, Brawler, DraftState, PickRecommendation } from '../types/domain';
 import { scoreTone } from '../utils/format';
 
 interface Props {
+  draft: DraftState;
   picks: PickRecommendation[];
   counters: PickRecommendation[];
   bans: BanRecommendation[];
@@ -15,7 +17,8 @@ interface Props {
   };
 }
 
-export function RecommendationPanel({ picks, counters, bans, composition }: Props) {
+export function RecommendationPanel({ draft, picks, counters, bans, composition }: Props) {
+  const draftStage = getDraftStage(draft);
   return (
     <aside className="panel flex h-full flex-col gap-4 overflow-hidden rounded-lg p-4">
       <div className="flex items-center justify-between">
@@ -27,6 +30,14 @@ export function RecommendationPanel({ picks, counters, bans, composition }: Prop
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-auto pr-1">
+        <div className="rounded-md border border-white/10 bg-white/[0.035] p-3">
+          <div className="flex items-center justify-between text-xs font-black text-ink">
+            <span>{sideLabel(draft.teamSide)}</span>
+            <span>{getDraftStageLabel(draftStage)}</span>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-muted">{getDraftStageReason(draft)}</p>
+        </div>
+
         <SectionTitle icon={<ShieldCheck size={16} />} title={zhCN.ui.firstPicks} />
         <div className="space-y-3">
           {picks.slice(0, 3).map((item, index) => (

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { brawlers, knowledgeBase, maps, metaInfo } from './data';
 import { buildAnalysis, recommendBans, recommendCompositions, recommendCounterPicks, recommendPicks } from './algorithm/recommendations';
+import { normalizeDraftState } from './algorithm/draft';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { DraftBoard } from './components/DraftBoard';
 import { MapSelector } from './components/MapSelector';
@@ -15,21 +16,30 @@ export default function App() {
   const [selectedMapId, setSelectedMapId] = useState(firstMap.mapId);
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState<DraftState>({
+    teamSide: 'blue',
+    currentPhase: 'pick',
+    currentStep: 3,
+    blueBans: [],
+    redBans: [],
+    bluePicks: ['sandy'],
+    redPicks: ['tick'],
     allyPicks: ['sandy'],
     enemyPicks: ['tick'],
     allyBans: [],
     enemyBans: [],
+    nextAction: 'enemy_pick',
     considerMeta: true,
     strategyMode: 'balanced'
   });
 
   const selectedMap = useMemo(() => maps.find((map) => map.mapId === selectedMapId) ?? maps[0], [selectedMapId]);
+  const normalizedDraft = useMemo(() => normalizeDraftState(draft), [draft]);
 
-  const recommendations = useMemo(() => recommendPicks(brawlers, selectedMap, draft, knowledgeBase), [selectedMap, draft]);
-  const counters = useMemo(() => recommendCounterPicks(brawlers, selectedMap, draft, knowledgeBase), [selectedMap, draft]);
-  const bans = useMemo(() => recommendBans(brawlers, selectedMap, draft, knowledgeBase), [selectedMap, draft]);
+  const recommendations = useMemo(() => recommendPicks(brawlers, selectedMap, normalizedDraft, knowledgeBase), [selectedMap, normalizedDraft]);
+  const counters = useMemo(() => recommendCounterPicks(brawlers, selectedMap, normalizedDraft, knowledgeBase), [selectedMap, normalizedDraft]);
+  const bans = useMemo(() => recommendBans(brawlers, selectedMap, normalizedDraft, knowledgeBase), [selectedMap, normalizedDraft]);
   const composition = useMemo(() => recommendCompositions(recommendations), [recommendations]);
-  const analysis = useMemo(() => buildAnalysis(brawlers, selectedMap, draft), [selectedMap, draft]);
+  const analysis = useMemo(() => buildAnalysis(brawlers, selectedMap, normalizedDraft), [selectedMap, normalizedDraft]);
 
   const handleModeChange = (mode: GameMode) => {
     const nextMap = maps.find((map) => map.gameMode === mode);
@@ -61,11 +71,11 @@ export default function App() {
           />
 
           <div className="flex min-h-0 flex-col gap-4">
-            <DraftBoard brawlers={brawlers} draft={draft} search={search} onDraftChange={setDraft} />
+            <DraftBoard brawlers={brawlers} draft={normalizedDraft} search={search} onDraftChange={(nextDraft) => setDraft(normalizeDraftState(nextDraft))} />
             <AnalysisPanel analysis={analysis} />
           </div>
 
-          <RecommendationPanel picks={recommendations} counters={counters} bans={bans} composition={composition} />
+          <RecommendationPanel draft={normalizedDraft} picks={recommendations} counters={counters} bans={bans} composition={composition} />
         </div>
       </div>
     </main>
