@@ -108,6 +108,55 @@ scripts/
 
 如果后续接入需要鉴权的接口，请使用 `.env` 保存真实密钥，并参考 `.env.example` 填写变量名。不要把真实 API Token、Cookie 或其他凭据提交到仓库。
 
+## 如何手动维护地图名和英雄名
+
+地图数据位于 `src/data/maps.ts`。英雄数据位于 `src/data/brawlers.ts`。界面中文显示优先读取数据项里的 `displayNameZh`，因此手动改中文名时，直接修改对应地图或英雄的 `displayNameZh` 即可。
+
+不要随便修改 `mapId` 或英雄的 `id`。这些字段是程序内部识别、Ban/Pick、推荐过滤和数据关联用的稳定 ID。`mapName` 和英雄的 `name` 建议保留为内部英文名，方便和外部资料、脚本、日志对照。
+
+找不到官方中文名时，不要自动乱翻译，也不要伪造官方译名。可以先写成：
+
+```ts
+displayNameZh: "待确认：英文名",
+translationQuality: "todo"
+```
+
+B 站视频、攻略站、社区 Wiki、Brawlify/Wiki 人工核对结果只能作为 `community` 来源，不要标注为 `official`。官方中文名优先来自游戏内简体中文截图或 Supercell 官方中文资料。
+
+地图名维护字段：
+
+```ts
+{
+  mapId: "hard_rock_mine",
+  mapName: "Hard Rock Mine",
+  displayNameZh: "坚石矿井",
+  aliasZh: ["硬石矿井"],
+  translationQuality: "community",
+  translationSource: "Brawlify/Wiki/人工核对",
+  translationCheckedAt: "2026-05-25"
+}
+```
+
+英雄名维护字段：
+
+```ts
+{
+  brawlerId: "shelly",
+  name: "Shelly",
+  displayNameZh: "雪莉",
+  aliasZh: ["喷子"],
+  translationQuality: "official",
+  translationSource: "游戏内简体中文",
+  translationCheckedAt: "2026-05-25"
+}
+```
+
+当前项目英雄数据文件实际使用字段名 `id` 作为英雄稳定 ID；如果参考上面的 `brawlerId` 示例维护，请对应到 `src/data/brawlers.ts` 里的 `id`。每次修改地图名、英雄名、别名或来源说明后，都要运行：
+
+```bash
+npm run build
+```
+
 ## 版本 Meta 数据说明
 
 版本 Meta 数据用于描述当前版本中英雄强度、适用场景和推荐权重。由于游戏平衡调整、地图池轮换和玩家环境变化较快，Meta 数据可能滞后，需要人工维护和核对。

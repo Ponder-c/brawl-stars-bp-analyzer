@@ -61,6 +61,11 @@ export interface Brawler {
   id: string;
   name: string;
   displayNameZh?: string;
+  aliasZh?: string[];
+  translationQuality?: 'official' | 'community' | 'estimated' | 'todo';
+  translationSource?: string;
+  translationSourceUrl?: string;
+  translationCheckedAt?: string;
   avatar: string;
   roles: BrawlerRole[];
   type: string;
@@ -100,8 +105,10 @@ export interface BrawlMap {
   mapId: string;
   mapName: string;
   displayNameZh?: string;
+  aliasZh?: string[];
   translationQuality?: 'official' | 'community' | 'estimated' | 'todo';
   translationSource?: string;
+  translationSourceUrl?: string;
   translationCheckedAt?: string;
   gameMode: GameMode;
   mapImage: string;
