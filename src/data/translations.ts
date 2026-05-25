@@ -1,4 +1,4 @@
-import type { BrawlMap, Brawler, BrawlerRole, GameMode, MetaTier } from '../types/domain';
+import type { BrawlMap, Brawler, BrawlerRole, MetaTier } from '../types/domain';
 
 export const zhCN = {
   brawlers: {
@@ -216,15 +216,29 @@ export const zhCN = {
     'Jumpscare Lair': '骇人巢穴'
   } as Record<string, string>,
   modes: {
+    'Gem Grab': '宝石争霸',
     gem_grab: '宝石争霸',
+    'Brawl Ball': '乱斗足球',
     brawl_ball: '乱斗足球',
+    'Hot Zone': '热区争夺',
     hot_zone: '热区争夺',
-    bounty: '赏金猎人',
-    knockout: '淘汰赛',
+    Heist: '金库攻防',
     heist: '金库攻防',
+    Bounty: '赏金猎人',
+    bounty: '赏金猎人',
+    Knockout: '淘汰赛',
+    knockout: '淘汰赛',
+    Wipeout: '擂台淘汰',
+    wipeout: '擂台淘汰',
+    Duels: '决斗',
     duels: '决斗',
-    wipeout: '擂台淘汰'
-  } as Record<GameMode, string>,
+    Showdown: '荒野决斗',
+    showdown: '荒野决斗',
+    'Solo Showdown': '单人荒野决斗',
+    solo_showdown: '单人荒野决斗',
+    'Duo Showdown': '双人荒野决斗',
+    duo_showdown: '双人荒野决斗'
+  } as Record<string, string>,
   roles: {
     mid: '中路',
     lane: '边路',
@@ -402,7 +416,7 @@ export function getMapDisplayName(map: Pick<BrawlMap, 'mapId' | 'mapName' | 'dis
   return displayNameZh || todoLabel(map.mapName || map.mapId);
 }
 
-export function getModeDisplayName(mode: GameMode) {
+export function getModeDisplayName(mode: string) {
   return zhCN.modes[mode] ?? todoLabel(mode);
 }
 
@@ -411,7 +425,7 @@ export function translateRole(role: string) {
 }
 
 export function translateTag(tag: string) {
-  return zhCN.tags[tag] ?? zhCN.modes[tag as GameMode] ?? todoLabel(tag);
+  return zhCN.tags[tag] ?? getModeDisplayName(tag);
 }
 
 export function translateRarity(value?: string) {
@@ -467,6 +481,9 @@ export function translateReason(text: string) {
   }
   for (const [english, chinese] of Object.entries(zhCN.maps)) {
     output = output.replaceAll(english, chinese);
+  }
+  for (const [mode, displayName] of Object.entries(zhCN.modes).sort(([left], [right]) => right.length - left.length)) {
+    output = output.replaceAll(mode, displayName);
   }
   return output
     .replace(/Long range poke can pressure tanks before they engage\./g, '长手消耗能在坦克开团前压低血线。')
