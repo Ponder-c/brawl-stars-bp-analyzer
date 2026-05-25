@@ -85,6 +85,9 @@ export interface BrawlMap {
   mapId: string;
   mapName: string;
   displayNameZh?: string;
+  translationQuality?: 'official' | 'community' | 'estimated' | 'todo';
+  translationSource?: string;
+  translationCheckedAt?: string;
   gameMode: GameMode;
   mapImage: string;
   imageUrl?: string;

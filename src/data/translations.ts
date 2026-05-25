@@ -174,11 +174,11 @@ export const zhCN = {
     'Back Shuffle': '倒步乱舞',
     'Zone Splitting': '区域分裂',
     'Ticket To Die': '临界点',
-    'Tax Evasion': '安全区域',
+    'Tax Evasion': '逃税',
     'Golden Bay': '金色海湾',
     'Hyacinth House': '紫蓝房屋',
     'Goldarm Gulch': '金臂峡谷',
-    'Belles Rock': '摇滚贝尔',
+    'Belles Rock': '贝尔岩',
     'Deep End': '深水区',
     'Flaring Phoenix': '烈焰凤凰',
     'Flowing Springs': '潺潺溪流',
@@ -304,6 +304,8 @@ export const zhCN = {
     'can lack solo carry damage': '单核输出不足'
   } as Record<string, string>,
   quality: {
+    official: '官方译名',
+    community: '社区常用',
     verified: '已确认',
     estimated: '估算',
     todo: '待确认'
@@ -365,8 +367,9 @@ export function getBrawlerDisplayName(brawler: Pick<Brawler, 'name' | 'displayNa
   return zhCN.brawlers[brawler.name] ?? (brawler.displayNameZh && brawler.displayNameZh !== brawler.name ? brawler.displayNameZh : todoLabel(brawler.name));
 }
 
-export function getMapDisplayName(map: Pick<BrawlMap, 'mapName' | 'displayNameZh'>) {
-  return zhCN.maps[map.mapName] ?? (map.displayNameZh && map.displayNameZh !== map.mapName ? map.displayNameZh : todoLabel(map.mapName));
+export function getMapDisplayName(map: Pick<BrawlMap, 'mapId' | 'mapName' | 'displayNameZh'>) {
+  const displayNameZh = map.displayNameZh?.trim();
+  return displayNameZh || todoLabel(map.mapName || map.mapId);
 }
 
 export function getModeDisplayName(mode: GameMode) {
