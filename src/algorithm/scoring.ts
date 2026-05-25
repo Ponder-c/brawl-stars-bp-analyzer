@@ -68,6 +68,10 @@ function clampScore(value: number) {
   return Math.max(-30, Math.min(100, value));
 }
 
+function clampPositiveScore(value: number) {
+  return Math.max(0, Math.min(100, value));
+}
+
 function closeTo(value: number, target: number, weight = 1) {
   return Math.max(0, 10 - Math.abs(value - target)) * weight;
 }
@@ -204,85 +208,118 @@ export function analyzeAllyComposition(allyPicks: string[], heroes: Brawler[]) {
 }
 
 export function calculateMapFitScore(brawler: Brawler, map: BrawlMap) {
+  const tags = inferBrawlerTags(brawler);
+  const weaknessTags = inferWeaknessTags(brawler);
   const reasons: string[] = [];
   const risks: string[] = [];
-  let score = 0;
+  let score = 18;
+  const s = brawler.stats;
 
-  score += closeTo(brawler.stats.range, map.openness, 1.1);
-  if (map.sniperFriendly && brawler.stats.range >= 8) {
-    score += 12;
-    reasons.push('地图适配度高：地图开阔，长手英雄能利用射程优势压制对手。');
+  score += closeTo(s.range, map.openness, 1.5);
+  if (map.openness >= 7) {
+    score += s.range * 2.4 + s.burst * 0.8 + (hasTag(tags, 'long_range') ? 14 : 0);
+    reasons.push('地图适配：地图开阔，射程、远程消耗和稳定对线价值更高。');
+    if (s.range <= 4 && s.mobility < 8) {
+      score -= 20;
+      risks.push('风险：开阔图短手进场困难，容易被长手持续消耗。');
+    }
   }
-  if (map.throwerFriendly && hasRole(brawler, 'thrower')) {
-    score += 14;
-    reasons.push('地图适配度高：墙体较多，投掷英雄可以安全封锁关键区域。');
+
+  if (map.wallDensity >= 6) {
+    score += map.wallDensity * 1.4 + s.control * 1.2 + s.wallBreak * 1.6;
+    if (hasTag(tags, 'thrower')) score += 18;
+    if (hasTag(tags, 'wall_break')) score += 12;
+    reasons.push('地图适配：墙体较多，投掷、破墙和绕墙控区能创造输出角度。');
+    if (s.wallBreak <= 1 && s.range >= 8 && !hasTag(tags, 'thrower')) {
+      score -= 10;
+      risks.push('风险：墙多会限制纯长手的输出角度。');
+    }
   }
-  if (map.assassinFriendly && hasRole(brawler, 'assassin')) {
-    score += 9;
-    reasons.push('地图适配度高：草丛和近身路线能帮助刺客后手进场。');
+
+  if (map.bushDensity >= 6) {
+    score += map.bushDensity * 1.3 + s.mobility * 1.1 + s.antiAssassin * 0.9 + s.control * 0.8;
+    if (hasTag(tags, 'assassin', 'tank')) score += 14;
+    if (hasTag(tags, 'grass_reveal', 'area_control', 'crowd_control')) score += 10;
+    reasons.push('地图适配：草丛较多，近战切入、控草、侦查和反突进价值更高。');
+    if (s.antiAssassin < 5 && hasTag(weaknessTags, 'low_hp', 'poor_escape')) {
+      score -= 12;
+      risks.push('风险：草多时自保弱的英雄容易被突然近身。');
+    }
   }
-  if (map.tankFriendly && hasRole(brawler, 'tank')) {
-    score += 10;
-    reasons.push('地图适配度高：地形允许坦克压线和主动开团。');
+
+  if (map.sniperFriendly && hasTag(tags, 'long_range')) {
+    score += 18;
+    reasons.push('地图适配：这张图适合射手或长手英雄建立视野线和消耗优势。');
   }
-  if (map.wallBreakValue >= 6 && brawler.stats.wallBreak >= 6) {
+  if (map.throwerFriendly && hasTag(tags, 'thrower')) {
+    score += 18;
+    reasons.push('地图适配：掩体能保护投掷英雄，便于封锁关键区域。');
+  }
+  if (map.assassinFriendly && hasTag(tags, 'assassin', 'mobility')) {
     score += 13;
-    reasons.push('破墙价值高：可以改变对线空间和进攻路线。');
+    reasons.push('地图适配：近身路线较多，刺客或高机动英雄能更容易进场。');
   }
-  if (map.wallDensity >= 7 && brawler.stats.wallBreak <= 1 && brawler.stats.range >= 8 && !hasRole(brawler, 'thrower')) {
-    risks.push('墙体较多，长手可能被掩体限制输出角度。');
-    score -= 5;
+  if (map.tankFriendly && hasTag(tags, 'tank', 'sustain')) {
+    score += 13;
+    reasons.push('地图适配：地形允许坦克压线、站点或主动开团。');
   }
-  if (map.openness >= 8 && (hasRole(brawler, 'tank') || hasRole(brawler, 'assassin')) && brawler.stats.mobility < 8) {
-    risks.push('开阔地图短手进场困难。');
-    score -= 10;
-  }
-  if (map.bushDensity >= 7 && brawler.stats.antiAssassin < 5) {
-    risks.push('草丛较多，容易被刺客突然近身。');
-    score -= 5;
+  if (map.wallBreakValue >= 6 && hasTag(tags, 'wall_break')) {
+    score += 18;
+    reasons.push('地图适配：破墙价值高，可以打开关键路线并改变对线空间。');
   }
 
-  return { score: clampScore(score), reasons, risks };
+  if (map.laneStructure === 'open' && hasTag(tags, 'long_range')) score += 10;
+  if (map.laneStructure === 'three_lane' && hasTag(tags, 'mid_control', 'lane_pressure')) score += 9;
+  if (map.laneStructure === 'center_control' && hasTag(tags, 'mid_control', 'area_control')) score += 10;
+  if (map.laneStructure === 'split' && hasTag(tags, 'mobility', 'lane_pressure')) score += 8;
+  if (map.strongBrawlerTags?.some((tag) => hasTag(tags, tag, tag === 'sniper' ? 'long_range' : tag))) score += 8;
+  if (map.weakBrawlerTags?.some((tag) => hasTag(tags, tag, tag === 'short_range' ? 'short_range' : tag))) {
+    score -= 8;
+    risks.push('风险：该英雄的标签命中这张图的弱势类型。');
+  }
+
+  return { score: clampPositiveScore(score), reasons: Array.from(new Set(reasons)).slice(0, 3), risks };
 }
 
 export function calculateModeFitScore(brawler: Brawler, mode: GameMode) {
+  const tags = inferBrawlerTags(brawler);
   const reasons: string[] = [];
   const risks: string[] = [];
   const s = brawler.stats;
-  let score = 0;
+  let score = 18;
 
   if (mode === 'brawl_ball') {
-    score += s.engage * 1.2 + s.control + s.wallBreak * 0.9 + s.ballCarry * 1.2;
-    if (s.engage >= 7) reasons.push('模式适配度高：具备乱斗足球需要的开团或推进能力。');
-    if (s.wallBreak >= 6) reasons.push('模式适配度高：能打开球门前路线，提升进球威胁。');
+    score += s.control * 1.8 + s.wallBreak * 1.6 + s.engage * 1.5 + s.ballCarry * 1.6 + (hasTag(tags, 'crowd_control') ? 8 : 0);
+    if (s.engage >= 7 || s.control >= 7) reasons.push('模式适配：足球需要控场、开团和推进能力。');
+    if (s.wallBreak >= 6) reasons.push('模式适配：能打开球门前路线，提升进球威胁。');
     if (s.ballCarry < 3) risks.push('控球和终结进球能力偏弱。');
   }
   if (mode === 'gem_grab') {
-    score += s.control * 1.2 + s.sustain + s.dps * 0.7 + s.survivability;
-    if (hasRole(brawler, 'mid')) reasons.push('模式适配度高：可承担宝石争霸中路控制。');
+    score += s.control * 2 + s.sustain * 1.3 + s.survivability * 1.4 + s.dps + (hasTag(tags, 'mid_control') ? 10 : 0);
+    if (hasRole(brawler, 'mid') || s.control >= 7) reasons.push('模式适配：宝石图重视中路控制、生存和持续压制。');
     if (s.survivability < 5) risks.push('持宝容错偏低。');
   }
   if (mode === 'hot_zone') {
-    score += s.zoneHold * 1.4 + s.control * 1.2 + s.sustain + s.dps * 0.6;
-    if (s.zoneHold >= 8) reasons.push('模式适配度高：站点和持续控区能力强。');
+    score += s.zoneHold * 2.1 + s.control * 1.7 + s.sustain * 1.4 + s.dps * 0.9 + (hasTag(tags, 'area_control', 'objective_control') ? 10 : 0);
+    if (s.zoneHold >= 7 || s.control >= 7) reasons.push('模式适配：热区需要控场、AOE、续航和站点能力。');
     if (s.range <= 3 && s.sustain < 7) risks.push('进点容易被消耗。');
   }
   if (mode === 'heist') {
-    score += s.dps * 1.6 + s.wallBreak + s.mobility * 0.5 + s.burst;
-    if (s.dps >= 8) reasons.push('模式适配度高：金库输出效率高。');
+    score += s.dps * 2.4 + s.burst * 1.4 + s.wallBreak * 1.5 + s.mobility + (hasTag(tags, 'safe_dps', 'wall_break') ? 10 : 0);
+    if (s.dps >= 8 || s.wallBreak >= 6) reasons.push('模式适配：金库需要高 DPS、爆发、破墙和进攻路线能力。');
     if (s.dps < 5) risks.push('对金库伤害不足。');
   }
   if (mode === 'bounty' || mode === 'knockout' || mode === 'wipeout') {
-    score += s.range * 1.3 + s.survivability * 1.2 + s.burst + s.antiAssassin * 0.8;
-    if (s.range >= 8) reasons.push('模式适配度高：远程消耗适合低死亡率模式。');
+    score += s.range * 2 + s.survivability * 1.6 + s.antiAssassin * 1.2 + s.burst * 1.2 + (hasTag(tags, 'long_range') ? 12 : 0);
+    if (s.range >= 8 || s.survivability >= 7) reasons.push('模式适配：淘汰/赏金重视射程、生存和反刺客能力。');
     if (s.survivability < 5) risks.push('被击杀代价高，容错偏低。');
   }
   if (mode === 'duels') {
-    score += s.burst * 1.2 + s.survivability + s.mobility + s.antiAssassin;
-    if (s.burst >= 7) reasons.push('模式适配度高：单挑爆发窗口明确。');
+    score += s.burst * 1.6 + s.survivability * 1.5 + s.mobility * 1.2 + s.antiAssassin * 1.2;
+    if (s.burst >= 7) reasons.push('模式适配：单挑爆发窗口明确。');
   }
 
-  return { score: clampScore(score), reasons, risks };
+  return { score: clampPositiveScore(score), reasons, risks };
 }
 
 export function calculateSynergyScore(candidate: Brawler, allyBrawlers: Brawler[]) {
@@ -348,6 +385,8 @@ export function calculateSynergyScore(candidate: Brawler, allyBrawlers: Brawler[
 }
 
 export function calculateDirectCounterScore(candidate: Brawler, enemyPicks: string[], heroes: Brawler[]) {
+  const tags = inferBrawlerTags(candidate);
+  const weaknessTags = inferWeaknessTags(candidate);
   const reasons: string[] = [];
   const risks: string[] = [];
   let score = 0;
@@ -369,6 +408,41 @@ export function calculateDirectCounterScore(candidate: Brawler, enemyPicks: stri
       score -= strength * 3;
       risks.push(`敌方 ${displayName(enemy)} 可能反制 ${displayName(candidate)}，这个选择需要队友保护。`);
     }
+
+    const enemyTags = inferBrawlerTags(enemy);
+    const enemyWeaknessTags = inferWeaknessTags(enemy);
+    if (hasTag(enemyTags, 'tank') && hasTag(tags, 'anti_tank', 'safe_dps', 'area_control', 'crowd_control')) {
+      score += 18;
+      reasons.push(`克制了敌方 ${displayName(enemy)}：反坦克、控制或持续输出能限制前排推进。`);
+    }
+    if (hasTag(enemyTags, 'assassin') && hasTag(tags, 'anti_assassin', 'crowd_control', 'sustain', 'shield')) {
+      score += 18;
+      reasons.push(`克制了敌方 ${displayName(enemy)}：反刺客、控制或高生存能降低被切入风险。`);
+    }
+    if (hasTag(enemyTags, 'thrower') && hasTag(tags, 'assassin', 'mobility', 'wall_break')) {
+      score += 20;
+      reasons.push(`克制了敌方 ${displayName(enemy)}：突进、绕后或破墙能处理墙后投掷威胁。`);
+    }
+    if (hasTag(enemyTags, 'long_range') && hasTag(tags, 'assassin', 'mobility', 'wall_break', 'lane_pressure')) {
+      score += 12;
+      reasons.push(`克制了敌方 ${displayName(enemy)}：能压缩长手站位或打破远程输出环境。`);
+    }
+    if (hasTag(enemyWeaknessTags, 'weak_to_assassin') && hasTag(tags, 'assassin', 'mobility')) {
+      score += 10;
+      reasons.push(`克制了敌方 ${displayName(enemy)}：对方怕突进，该英雄可作为后手切入点。`);
+    }
+    if (hasTag(enemyWeaknessTags, 'weak_to_long_range', 'short_range') && hasTag(tags, 'long_range')) {
+      score += 10;
+      reasons.push(`克制了敌方 ${displayName(enemy)}：可以利用射程差持续消耗。`);
+    }
+    if (hasTag(enemyTags, 'assassin') && hasTag(weaknessTags, 'weak_to_assassin', 'poor_escape', 'low_hp')) {
+      score -= 16;
+      risks.push(`风险：敌方 ${displayName(enemy)} 能威胁该英雄，自保不足时容易被切。`);
+    }
+    if (hasTag(enemyTags, 'thrower') && hasTag(weaknessTags, 'weak_to_thrower')) {
+      score -= 10;
+      risks.push(`风险：敌方 ${displayName(enemy)} 的投掷压制会限制该英雄输出角度。`);
+    }
   }
 
   return { score: clampScore(score), reasons, risks };
@@ -387,27 +461,27 @@ export function calculateTagCounterScore(candidate: Brawler, enemyProfile: Compo
   if (!enemyProfile.brawlers.length) return { score, reasons, risks };
 
   if (enemyProfile.hasTank && hasTag(tags, 'anti_tank', 'safe_dps', 'area_control', 'crowd_control')) {
-    score += 14;
+    score += 24;
     reasons.push('针对敌方已选坦克英雄，该英雄具备反坦克、控制或持续输出能力，能限制敌方正面推进。');
   }
   if (enemyProfile.hasTank && !hasTag(tags, 'anti_tank', 'safe_dps', 'area_control', 'crowd_control')) {
-    score -= 6;
+    score -= 10;
     risks.push('敌方已有坦克，但该英雄处理前排能力有限，不能只靠版本强度优先。');
   }
   if (enemyProfile.hasAssassin && hasTag(tags, 'anti_assassin', 'crowd_control', 'shield', 'sustain')) {
-    score += 14;
+    score += 24;
     reasons.push('敌方已经选择刺客英雄，该英雄具备反刺客、控制或高生存能力，能降低我方后排被切入的风险。');
   }
   if (enemyProfile.hasThrower && hasTag(tags, 'assassin', 'mobility', 'wall_break')) {
-    score += 16;
+    score += 28;
     reasons.push('敌方已经选择投掷英雄，我方选择高机动或破墙英雄可以绕开墙体压制后排。');
   }
   if (enemyProfile.hasLongRange && hasTag(tags, 'assassin', 'mobility', 'wall_break', 'lane_pressure')) {
-    score += 10;
+    score += 16;
     reasons.push('针对敌方长手阵容，该英雄能通过突进、绕后或破墙压缩敌方输出空间。');
   }
   if (enemyProfile.hasHealer && hasTag(tags, 'burst_damage', 'safe_dps', 'area_control', 'crowd_control')) {
-    score += 8;
+    score += 12;
     reasons.push('敌方有治疗或续航能力，该英雄可以用爆发、高 DPS 或控制压制敌方持续作战。');
   }
   if (enemyProfile.hasWallBreak && hasTag(tags, 'mobility', 'sustain', 'mid_control')) {
@@ -415,16 +489,16 @@ export function calculateTagCounterScore(candidate: Brawler, enemyProfile: Compo
     reasons.push('敌方具备破墙能力，该英雄机动性、续航或中路控制较好，能适应地形被打开后的对线。');
   }
   if (hasTag(enemyProfile.weaknessTags, 'weak_to_assassin') && hasTag(tags, 'assassin', 'mobility')) {
-    score += 8;
+    score += 14;
     reasons.push('敌方阵容缺少反刺客能力，该英雄可以作为后手切入点。');
   }
   if (hasTag(enemyProfile.weaknessTags, 'weak_to_long_range') && hasTag(tags, 'long_range')) {
-    score += 10;
+    score += 16;
     reasons.push('敌方阵容射程压力不足，该英雄可以用长手消耗建立对线优势。');
   }
 
   if (enemyProfile.hasAssassin && hasTag(inferWeaknessTags(candidate), 'weak_to_assassin', 'poor_escape', 'low_hp')) {
-    score -= 12;
+    score -= 18;
     risks.push('敌方已有刺客，而该英雄自保偏弱，容易成为切入目标。');
   }
   if (enemyProfile.hasThrower && hasTag(inferWeaknessTags(candidate), 'weak_to_thrower')) {
@@ -443,35 +517,35 @@ export function calculateAllyNeedScore(candidate: Brawler, allyProfile: Composit
   if (!allyProfile.brawlers.length) return { score, reasons };
 
   if (allyProfile.lacksRange && hasTag(tags, 'long_range')) {
-    score += 10;
+    score += 16;
     reasons.push('我方目前缺少射程，该英雄可以补足远程消耗和对线压制。');
   }
   if (allyProfile.lacksControl && hasTag(tags, 'area_control', 'mid_control', 'crowd_control')) {
-    score += 10;
+    score += 16;
     reasons.push('我方目前缺少控场，该英雄能补中路控制和区域压制。');
   }
   if (allyProfile.lacksWallBreak && hasTag(tags, 'wall_break')) {
-    score += map && map.wallBreakValue >= 6 ? 14 : 10;
+    score += map && map.wallBreakValue >= 6 ? 20 : 15;
     reasons.push(map && map.wallBreakValue >= 6 ? '我方目前缺少破墙能力，而这张图墙体价值较高，因此该英雄能改善阵容结构。' : '我方目前缺少破墙能力，该英雄能打开关键路线。');
   }
   if (allyProfile.lacksAntiTank && hasTag(tags, 'anti_tank', 'safe_dps')) {
-    score += 10;
+    score += 16;
     reasons.push('我方目前缺少反坦克和持续输出，该英雄能补足处理前排的能力。');
   }
   if (allyProfile.lacksAntiAssassin && hasTag(tags, 'anti_assassin', 'crowd_control', 'shield')) {
-    score += 10;
+    score += 16;
     reasons.push('我方目前缺少反刺客能力，该英雄能保护后排并限制敌方切入。');
   }
   if (allyProfile.lacksDamage && hasTag(tags, 'burst_damage', 'safe_dps')) {
-    score += 8;
+    score += 13;
     reasons.push('我方目前输出不足，该英雄能补充爆发或稳定伤害。');
   }
   if (allyProfile.lacksSurvivability && hasTag(tags, 'sustain', 'shield', 'healer')) {
-    score += 8;
+    score += 12;
     reasons.push('我方目前生存和续航偏弱，该英雄能提高长回合容错。');
   }
   if (allyProfile.lacksObjectivePressure && hasTag(tags, 'objective_control', 'safe_dps')) {
-    score += 8;
+    score += 12;
     reasons.push('我方目前目标压制不足，该英雄能提升站点、金库或中路目标处理能力。');
   }
 
@@ -507,6 +581,48 @@ export function generateCounterReasons(candidate: Brawler, enemyPicks: Brawler[]
   if (allyProfile.brawlers.length && allyProfile.lacksDamage && hasTag(tags, 'burst_damage', 'safe_dps')) {
     reasons.push(`我方输出不足，${displayName(candidate)} 能补稳定伤害或爆发窗口。`);
   }
+
+  return reasons;
+}
+
+export function generateRecommendationReasons(
+  candidate: Brawler,
+  context: {
+    map: BrawlMap;
+    mapFit: ReturnType<typeof calculateMapFitScore>;
+    modeFit: ReturnType<typeof calculateModeFitScore>;
+    directCounter: ReturnType<typeof calculateDirectCounterScore>;
+    tagCounter: ReturnType<typeof calculateTagCounterScore>;
+    allyNeed: ReturnType<typeof calculateAllyNeedScore>;
+    synergy: ReturnType<typeof calculateSynergyScore>;
+    enemyBrawlers: Brawler[];
+    allyProfile: CompositionProfile;
+  }
+) {
+  const reasons: string[] = [];
+  const tags = inferBrawlerTags(candidate);
+  const enemyNames = context.enemyBrawlers.map(displayName);
+
+  if (context.mapFit.reasons.length) {
+    reasons.push(context.mapFit.reasons[0]);
+  } else if (context.map.openness >= 7 && hasTag(tags, 'long_range')) {
+    reasons.push('地图理由：这张图较开阔，该英雄能用射程和消耗建立优势。');
+  } else if (context.map.wallDensity >= 6 && hasTag(tags, 'thrower', 'wall_break')) {
+    reasons.push('地图理由：这张图墙体较多，该英雄能利用投掷或破墙创造空间。');
+  } else if (context.map.bushDensity >= 6 && hasTag(tags, 'assassin', 'tank', 'area_control')) {
+    reasons.push('地图理由：这张图草丛较多，该英雄适合控草、切入或正面压制。');
+  }
+
+  if (enemyNames.length && (context.directCounter.reasons.length || context.tagCounter.reasons.length)) {
+    reasons.push((context.directCounter.reasons[0] ?? context.tagCounter.reasons[0]).replace('针对敌方已选', `针对敌方 ${enemyNames.join('、')}：`));
+  }
+
+  if (context.allyProfile.brawlers.length && context.allyNeed.reasons.length) {
+    reasons.push(context.allyNeed.reasons[0]);
+  }
+
+  const risk = [...context.mapFit.risks, ...context.modeFit.risks, ...context.directCounter.risks, ...context.tagCounter.risks, ...context.synergy.risks][0];
+  if (risk) reasons.push(`风险提示：${risk.replace(/^风险：/, '')}`);
 
   return reasons;
 }
@@ -578,28 +694,40 @@ export function calculatePickScore(
   const versatility = calculateVersatilityScore(candidate);
   const generatedCounterReasons = generateCounterReasons(candidate, enemyBrawlers, enemyProfile, allyProfile);
   const counterScore = directCounter.score + tagCounter.score;
-  const riskScore = Math.max(0, -directCounter.score) + directCounter.risks.length * 4 + tagCounter.risks.length * 4;
+  const riskScore = Math.max(0, -directCounter.score) + directCounter.risks.length * 6 + tagCounter.risks.length * 6 + mapFit.risks.length * 3 + modeFit.risks.length * 3;
   const strategy = strategyWeights[draft.strategyMode];
   const stage = getDraftStage(draft);
-  const weights = draftWeights[stage];
-  const total = clampScore(
-    mapFit.score * weights.mapFit * strategy.map +
-      modeFit.score * weights.modeFit * strategy.mode +
-      synergy.score * weights.synergy * strategy.synergy +
-      directCounter.score * weights.directCounter * strategy.directCounter +
-      tagCounter.score * weights.tagCounter * strategy.tagCounter +
-      allyNeed.score * weights.allyNeed * strategy.allyNeed +
-      safety * weights.safety +
-      versatility * weights.versatility +
-      meta * weights.meta * strategy.meta +
-      patchImpact * 0.8 +
-      trend * 0.55 +
-      liveData * 0.4 -
-      stalenessPenalty * 0.7 +
-      knowledgeScore.score * strategy.knowledge * 0.6 -
-      riskScore * weights.risk * strategy.risk
+  const recommendationReasons = generateRecommendationReasons(candidate, {
+    map,
+    mapFit,
+    modeFit,
+    directCounter,
+    tagCounter,
+    allyNeed,
+    synergy,
+    enemyBrawlers,
+    allyProfile
+  });
+  const total = clampPositiveScore(
+    8 +
+      mapFit.score * 0.3 * strategy.map +
+      modeFit.score * 0.2 * strategy.mode +
+      Math.max(0, directCounter.score) * 0.18 * strategy.directCounter +
+      Math.max(0, tagCounter.score) * 0.16 * strategy.tagCounter +
+      allyNeed.score * 0.14 * strategy.allyNeed +
+      synergy.score * 0.08 * strategy.synergy +
+      safety * 0.05 +
+      versatility * 0.04 +
+      meta * 0.06 * strategy.meta +
+      patchImpact * 0.28 +
+      trend * 0.18 +
+      liveData * 0.16 -
+      stalenessPenalty * 0.35 +
+      knowledgeScore.score * strategy.knowledge * 0.3 -
+      riskScore * 0.16 * strategy.risk
   );
   const reasons = [
+    ...recommendationReasons,
     getDraftStageReason(draft),
     ...versionScore.reasons,
     ...directCounter.reasons,
@@ -637,7 +765,7 @@ export function calculatePickScore(
     total: Math.round(total),
     reasons: reasons.length ? Array.from(new Set(reasons)).slice(0, 6) : ['该英雄在当前地图和模式下综合适配度较高，可作为稳定补位选择。'],
     risks: [...mapFit.risks, ...modeFit.risks, ...synergy.risks, ...directCounter.risks, ...tagCounter.risks].slice(0, 6),
-    tags: [...candidate.roles, candidate.metaTier].slice(0, 5)
+    tags: [...inferBrawlerTags(candidate), candidate.metaTier].slice(0, 5)
   };
 }
 
