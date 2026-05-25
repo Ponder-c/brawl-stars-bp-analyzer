@@ -40,6 +40,25 @@ export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
     });
   };
 
+  const handleResetDraft = () => {
+    if (!window.confirm('确定清空当前 BP 吗？')) return;
+    setHistory([]);
+    onDraftChange(
+      normalizeDraftState({
+        ...normalizedDraft,
+        currentStep: 0,
+        blueBans: [],
+        redBans: [],
+        bluePicks: [],
+        redPicks: [],
+        allyBans: [],
+        enemyBans: [],
+        allyPicks: [],
+        enemyPicks: []
+      })
+    );
+  };
+
   return (
     <section className="panel flex h-full flex-col rounded-lg p-4">
       <div className="mb-4 flex items-center justify-between">
@@ -115,13 +134,18 @@ export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
         <div className="min-h-0 overflow-auto rounded-lg border border-white/10 bg-black/18 p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-black text-ink">统一英雄池</span>
-            <button
-              className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] font-bold text-slate-300 transition hover:border-white/25 disabled:opacity-35"
-              disabled={history.length === 0}
-              onClick={handleUndo}
-            >
-              撤销上一步
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] font-bold text-slate-300 transition hover:border-white/25 disabled:opacity-35"
+                disabled={history.length === 0}
+                onClick={handleUndo}
+              >
+                撤销上一步
+              </button>
+              <button className="rounded-md border border-danger/25 bg-danger/10 px-2 py-1 text-[11px] font-bold text-rose-100 transition hover:border-danger/50" onClick={handleResetDraft}>
+                清空本局 BP
+              </button>
+            </div>
           </div>
           <BrawlerPicker brawlers={brawlers} selectedIds={[]} disabledIds={poolDisabledIds} search={search} onToggle={handlePoolToggle} />
         </div>
