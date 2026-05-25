@@ -17,6 +17,8 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState<DraftState>({
     teamSide: 'blue',
+    mySide: 'blue',
+    firstPickSide: 'blue',
     currentPhase: 'pick',
     currentStep: 3,
     blueBans: [],

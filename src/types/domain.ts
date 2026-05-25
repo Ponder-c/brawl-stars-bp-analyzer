@@ -191,6 +191,8 @@ export interface KnowledgeEntry {
 
 export interface DraftState {
   teamSide: TeamSide;
+  mySide: TeamSide;
+  firstPickSide: TeamSide;
   currentPhase: DraftPhase;
   currentStep: number;
   blueBans: string[];

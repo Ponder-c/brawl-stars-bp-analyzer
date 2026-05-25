@@ -36,6 +36,20 @@ export const rankedDraftOrder: DraftOrderStep[] = [
   { phase: 'pick', team: 'red', pickNumber: 3 }
 ];
 
+export function buildDraftOrder(firstPickSide: TeamSide = 'blue'): DraftOrderStep[] {
+  const secondPickSide = firstPickSide === 'blue' ? 'red' : 'blue';
+  return [
+    { phase: 'ban', team: firstPickSide },
+    { phase: 'ban', team: secondPickSide },
+    { phase: 'pick', team: firstPickSide, pickNumber: 1 },
+    { phase: 'pick', team: secondPickSide, pickNumber: 1 },
+    { phase: 'pick', team: secondPickSide, pickNumber: 2 },
+    { phase: 'pick', team: firstPickSide, pickNumber: 2 },
+    { phase: 'pick', team: firstPickSide, pickNumber: 3 },
+    { phase: 'pick', team: secondPickSide, pickNumber: 3 }
+  ];
+}
+
 export const draftWeights: Record<DraftStage, DraftWeightSet> = {
   first_pick: {
     mapFit: 0.3,
@@ -99,17 +113,18 @@ export const draftWeights: Record<DraftStage, DraftWeightSet> = {
   }
 };
 
-function clampStep(currentStep: number) {
-  return Math.max(0, Math.min(rankedDraftOrder.length, currentStep));
+function clampStep(currentStep: number, draftOrder = rankedDraftOrder) {
+  return Math.max(0, Math.min(draftOrder.length, currentStep));
 }
 
 export function sideLabel(side: TeamSide) {
   return side === 'blue' ? '蓝方 / 先选方' : '红方 / 后选方';
 }
 
-export function getStepInfo(currentStep: number) {
-  const step = clampStep(currentStep);
-  return rankedDraftOrder[step] ?? null;
+export function getStepInfo(currentStep: number, firstPickSide: TeamSide = 'blue') {
+  const draftOrder = buildDraftOrder(firstPickSide);
+  const step = clampStep(currentStep, draftOrder);
+  return draftOrder[step] ?? null;
 }
 
 export function getActionForStep(step: DraftOrderStep | null, teamSide: TeamSide): DraftAction {
@@ -152,9 +167,11 @@ export function getDraftStageReason(draft: DraftState) {
 }
 
 export function normalizeDraftState(draft: DraftState): DraftState {
-  const currentStep = clampStep(draft.currentStep ?? 0);
-  const step = getStepInfo(currentStep);
+  const firstPickSide = draft.firstPickSide ?? 'blue';
+  const currentStep = clampStep(draft.currentStep ?? 0, buildDraftOrder(firstPickSide));
+  const step = getStepInfo(currentStep, firstPickSide);
   const teamSide = draft.teamSide ?? 'blue';
+  const mySide = draft.mySide ?? teamSide;
   const bluePicks = draft.bluePicks ?? (teamSide === 'blue' ? draft.allyPicks : draft.enemyPicks) ?? [];
   const redPicks = draft.redPicks ?? (teamSide === 'red' ? draft.allyPicks : draft.enemyPicks) ?? [];
   const blueBans = draft.blueBans ?? (teamSide === 'blue' ? draft.allyBans : draft.enemyBans) ?? [];
@@ -165,6 +182,8 @@ export function normalizeDraftState(draft: DraftState): DraftState {
   return {
     ...draft,
     teamSide,
+    mySide,
+    firstPickSide,
     currentStep,
     currentPhase,
     nextAction,
@@ -186,4 +205,3 @@ export function updateDraftSide(draft: DraftState, teamSide: TeamSide) {
 export function updateDraftStep(draft: DraftState, currentStep: number) {
   return normalizeDraftState({ ...draft, currentStep });
 }
-

@@ -1,6 +1,6 @@
 import { ShieldBan, Swords } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { getActionForStep, getDraftStage, getDraftStageLabel, getStepInfo, normalizeDraftState, rankedDraftOrder, sideLabel, updateDraftSide, updateDraftStep } from '../algorithm/draft';
+import { useState, type ReactNode } from 'react';
+import { buildDraftOrder, getActionForStep, getDraftStage, getDraftStageLabel, getStepInfo, normalizeDraftState, sideLabel, updateDraftStep } from '../algorithm/draft';
 import { getBrawlerDisplayName, zhCN } from '../data/translations';
 import type { Brawler, DraftState, TeamSide } from '../types/domain';
 import { BrawlerPicker } from './BrawlerPicker';
@@ -13,16 +13,31 @@ interface Props {
 }
 
 export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
+  const [history, setHistory] = useState<DraftState[]>([]);
   const normalizedDraft = normalizeDraftState(draft);
+  const draftOrder = buildDraftOrder(normalizedDraft.firstPickSide);
   const usedIds = [...normalizedDraft.bluePicks, ...normalizedDraft.redPicks, ...normalizedDraft.blueBans, ...normalizedDraft.redBans];
-  const stepInfo = getStepInfo(normalizedDraft.currentStep);
+  const stepInfo = getStepInfo(normalizedDraft.currentStep, normalizedDraft.firstPickSide);
   const draftStage = getDraftStage(normalizedDraft);
+  const activeTeam = stepInfo?.team;
+  const activePhase = stepInfo?.phase;
+  const activeSideKey = stepInfo ? getTeamListKey(stepInfo.team, stepInfo.phase) : null;
+  const activeList = activeSideKey ? normalizedDraft[activeSideKey] : [];
+  const poolDisabledIds = stepInfo && activeList.length < 3 ? usedIds : brawlers.map((brawler) => brawler.id);
 
-  const toggleList = (key: keyof Pick<DraftState, 'allyPicks' | 'enemyPicks' | 'allyBans' | 'enemyBans'>, id: string, limit: number) => {
-    const sideKey = getSideKey(normalizedDraft.teamSide, key);
-    const current = normalizedDraft[sideKey];
-    const next = current.includes(id) ? current.filter((item) => item !== id) : current.length < limit ? [...current, id] : current;
-    onDraftChange(normalizeDraftState({ ...normalizedDraft, [sideKey]: next }));
+  const handlePoolToggle = (id: string) => {
+    if (!stepInfo || !activeSideKey || usedIds.includes(id) || activeList.length >= 3) return;
+    setHistory((current) => [...current, normalizedDraft]);
+    onDraftChange(normalizeDraftState({ ...normalizedDraft, [activeSideKey]: [...activeList, id], currentStep: normalizedDraft.currentStep + 1 }));
+  };
+
+  const handleUndo = () => {
+    setHistory((current) => {
+      const previous = current.at(-1);
+      if (!previous) return current;
+      onDraftChange(previous);
+      return current.slice(0, -1);
+    });
   };
 
   return (
@@ -35,16 +50,27 @@ export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
         <Swords className="text-ember" size={20} />
       </div>
 
-      <div className="mb-4 grid grid-cols-[1fr_1fr_auto] gap-2 rounded-lg border border-white/10 bg-black/18 p-3">
+      <div className="mb-4 grid grid-cols-[1fr_1fr_1fr_auto] gap-2 rounded-lg border border-white/10 bg-black/18 p-3">
         <label className="flex flex-col gap-1">
           <span className="text-[11px] font-black text-muted">我方阵营</span>
           <select
             className="rounded-md border border-white/10 bg-black/35 px-2 py-2 text-xs font-bold text-ink outline-none"
-            value={normalizedDraft.teamSide}
-            onChange={(event) => onDraftChange(updateDraftSide(normalizedDraft, event.target.value as TeamSide))}
+            value={normalizedDraft.mySide}
+            onChange={(event) => onDraftChange(normalizeDraftState({ ...normalizedDraft, mySide: event.target.value as TeamSide }))}
           >
-            <option value="blue">蓝方 / 先选方</option>
-            <option value="red">红方 / 后选方</option>
+            <option value="blue">我方蓝方</option>
+            <option value="red">我方红方</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-black text-muted">先选方</span>
+          <select
+            className="rounded-md border border-white/10 bg-black/35 px-2 py-2 text-xs font-bold text-ink outline-none"
+            value={normalizedDraft.firstPickSide}
+            onChange={(event) => onDraftChange(normalizeDraftState({ ...normalizedDraft, firstPickSide: event.target.value as TeamSide }))}
+          >
+            <option value="blue">蓝方先选</option>
+            <option value="red">红方先选</option>
           </select>
         </label>
         <label className="flex flex-col gap-1">
@@ -54,12 +80,12 @@ export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
             value={normalizedDraft.currentStep}
             onChange={(event) => onDraftChange(updateDraftStep(normalizedDraft, Number(event.target.value)))}
           >
-            {rankedDraftOrder.map((step, index) => (
+            {draftOrder.map((step, index) => (
               <option key={index} value={index}>
                 {index + 1}. {step.team === 'blue' ? '蓝方' : '红方'}{step.phase === 'ban' ? '禁用' : `选择 ${step.pickNumber}`}
               </option>
             ))}
-            <option value={rankedDraftOrder.length}>BP 完成</option>
+            <option value={draftOrder.length}>BP 完成</option>
           </select>
         </label>
         <div className="flex min-w-[150px] flex-col justify-center rounded-md border border-white/10 bg-white/[0.035] px-3">
@@ -69,37 +95,38 @@ export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <SlotGroup title={zhCN.ui.allyBan} icon={<ShieldBan size={15} />} tone="cyan" ids={normalizedDraft.allyBans} brawlers={brawlers} />
-        <SlotGroup title={zhCN.ui.enemyBan} icon={<ShieldBan size={15} />} tone="red" ids={normalizedDraft.enemyBans} brawlers={brawlers} />
-        <SlotGroup title={zhCN.ui.allyPick} icon={<Swords size={15} />} tone="cyan" ids={normalizedDraft.allyPicks} brawlers={brawlers} />
-        <SlotGroup title={zhCN.ui.enemyPick} icon={<Swords size={15} />} tone="red" ids={normalizedDraft.enemyPicks} brawlers={brawlers} />
-      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-[170px_minmax(0,1fr)_170px] gap-3 overflow-hidden">
+        <div className="flex min-h-0 flex-col gap-3">
+          <SlotGroup title="蓝方 Ban" icon={<ShieldBan size={15} />} tone="cyan" ids={normalizedDraft.blueBans} brawlers={brawlers} active={activeTeam === 'blue' && activePhase === 'ban'} />
+          <SlotGroup title="蓝方 Pick" icon={<Swords size={15} />} tone="cyan" ids={normalizedDraft.bluePicks} brawlers={brawlers} active={activeTeam === 'blue' && activePhase === 'pick'} />
+        </div>
 
-      <div className="mt-4 grid flex-1 grid-cols-2 gap-4 overflow-hidden">
-        <PickerColumn title={zhCN.ui.selectAllyPick} subtitle={zhCN.ui.maxThree}>
-          <BrawlerPicker brawlers={brawlers} selectedIds={normalizedDraft.allyPicks} disabledIds={usedIds.filter((id) => !normalizedDraft.allyPicks.includes(id))} search={search} onToggle={(id) => toggleList('allyPicks', id, 3)} />
-        </PickerColumn>
-        <PickerColumn title={zhCN.ui.selectEnemyPick} subtitle={zhCN.ui.maxThree}>
-          <BrawlerPicker brawlers={brawlers} selectedIds={normalizedDraft.enemyPicks} disabledIds={usedIds.filter((id) => !normalizedDraft.enemyPicks.includes(id))} search={search} onToggle={(id) => toggleList('enemyPicks', id, 3)} />
-        </PickerColumn>
-        <PickerColumn title={zhCN.ui.allyBan} subtitle={zhCN.ui.maxThree}>
-          <BrawlerPicker brawlers={brawlers} selectedIds={normalizedDraft.allyBans} disabledIds={usedIds.filter((id) => !normalizedDraft.allyBans.includes(id))} search={search} onToggle={(id) => toggleList('allyBans', id, 3)} />
-        </PickerColumn>
-        <PickerColumn title={zhCN.ui.enemyBan} subtitle={zhCN.ui.maxThree}>
-          <BrawlerPicker brawlers={brawlers} selectedIds={normalizedDraft.enemyBans} disabledIds={usedIds.filter((id) => !normalizedDraft.enemyBans.includes(id))} search={search} onToggle={(id) => toggleList('enemyBans', id, 3)} />
-        </PickerColumn>
+        <div className="min-h-0 overflow-auto rounded-lg border border-white/10 bg-black/18 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-black text-ink">统一英雄池</span>
+            <button
+              className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] font-bold text-slate-300 transition hover:border-white/25 disabled:opacity-35"
+              disabled={history.length === 0}
+              onClick={handleUndo}
+            >
+              撤销上一步
+            </button>
+          </div>
+          <BrawlerPicker brawlers={brawlers} selectedIds={[]} disabledIds={poolDisabledIds} search={search} onToggle={handlePoolToggle} />
+        </div>
+
+        <div className="flex min-h-0 flex-col gap-3">
+          <SlotGroup title="红方 Ban" icon={<ShieldBan size={15} />} tone="red" ids={normalizedDraft.redBans} brawlers={brawlers} active={activeTeam === 'red' && activePhase === 'ban'} />
+          <SlotGroup title="红方 Pick" icon={<Swords size={15} />} tone="red" ids={normalizedDraft.redPicks} brawlers={brawlers} active={activeTeam === 'red' && activePhase === 'pick'} />
+        </div>
       </div>
     </section>
   );
 }
 
-function getSideKey(teamSide: TeamSide, key: keyof Pick<DraftState, 'allyPicks' | 'enemyPicks' | 'allyBans' | 'enemyBans'>) {
-  const allySide = teamSide;
-  const enemySide = teamSide === 'blue' ? 'red' : 'blue';
-  const side = key.startsWith('ally') ? allySide : enemySide;
-  const kind = key.endsWith('Picks') ? 'Picks' : 'Bans';
-  return `${side}${kind}` as keyof Pick<DraftState, 'bluePicks' | 'redPicks' | 'blueBans' | 'redBans'>;
+function getTeamListKey(team: TeamSide, phase: 'ban' | 'pick') {
+  const kind = phase === 'ban' ? 'Bans' : 'Picks';
+  return `${team}${kind}` as keyof Pick<DraftState, 'bluePicks' | 'redPicks' | 'blueBans' | 'redBans'>;
 }
 
 function formatAction(action: DraftState['nextAction']) {
@@ -112,22 +139,11 @@ function formatAction(action: DraftState['nextAction']) {
   }[action];
 }
 
-function PickerColumn({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
-  return (
-    <div className="min-h-0 overflow-auto rounded-lg border border-white/10 bg-black/18 p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-black text-ink">{title}</span>
-        <span className="text-[11px] text-muted">{subtitle}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function SlotGroup({ title, icon, tone, ids, brawlers }: { title: string; icon: ReactNode; tone: 'cyan' | 'red'; ids: string[]; brawlers: Brawler[] }) {
+function SlotGroup({ title, icon, tone, ids, brawlers, active = false }: { title: string; icon: ReactNode; tone: 'cyan' | 'red'; ids: string[]; brawlers: Brawler[]; active?: boolean }) {
   const border = tone === 'cyan' ? 'border-neon/25' : 'border-danger/25';
+  const activeClass = tone === 'cyan' ? 'border-neon/70 bg-neon/10 shadow-glow' : 'border-danger/70 bg-danger/10';
   return (
-    <div className={`rounded-lg border ${border} bg-white/[0.035] p-3`}>
+    <div className={`rounded-lg border ${active ? activeClass : `${border} bg-white/[0.035]`} p-3`}>
       <div className="mb-2 flex items-center gap-2 text-xs font-black text-ink">
         {icon}
         {title}
