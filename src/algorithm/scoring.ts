@@ -212,69 +212,85 @@ export function calculateMapFitScore(brawler: Brawler, map: BrawlMap) {
   const weaknessTags = inferWeaknessTags(brawler);
   const reasons: string[] = [];
   const risks: string[] = [];
-  let score = 18;
+  let score = 6;
   const s = brawler.stats;
+  const openness = map.openness ?? 5;
+  const wallDensity = map.wallDensity ?? 5;
+  const bushDensity = map.bushDensity ?? 4;
+  const chokePoints = map.chokePoints ?? 3;
+  const wallBreakValue = map.wallBreakValue ?? Math.max(3, Math.round(wallDensity));
+  const openPressure = Math.max(0, openness - Math.max(wallDensity, bushDensity) * 0.45);
+  const wallPressure = Math.max(0, wallDensity + wallBreakValue * 0.5 - openness * 0.35);
+  const bushPressure = Math.max(0, bushDensity - openness * 0.25);
 
-  score += closeTo(s.range, map.openness, 1.5);
-  if (map.openness >= 7) {
-    score += s.range * 2.4 + s.burst * 0.8 + (hasTag(tags, 'long_range') ? 14 : 0);
-    reasons.push('地图适配：地图开阔，射程、远程消耗和稳定对线价值更高。');
-    if (s.range <= 4 && s.mobility < 8) {
-      score -= 20;
-      risks.push('风险：开阔图短手进场困难，容易被长手持续消耗。');
+  score += closeTo(s.range, openness, 0.7);
+  score += Math.max(0, 10 - Math.abs(s.control - chokePoints - 3)) * 0.5;
+
+  if (openness >= 7 || map.sniperFriendly) {
+    score += openPressure * 2.4 + s.range * 1.5 + s.burst * 0.45 + (hasTag(tags, 'long_range') ? 12 : 0);
+    reasons.push('地图适配：该地图开阔，适合长手压制、远程消耗和稳定对线。');
+    if (hasTag(tags, 'tank', 'short_range') && bushDensity <= 4 && wallDensity <= 5 && s.mobility < 8) {
+      score -= 24;
+      risks.push('风险：该地图开阔且缺少草丛/掩体，短手或坦克进场困难。');
     }
   }
 
-  if (map.wallDensity >= 6) {
-    score += map.wallDensity * 1.4 + s.control * 1.2 + s.wallBreak * 1.6;
-    if (hasTag(tags, 'thrower')) score += 18;
+  if (wallDensity >= 6 || map.throwerFriendly) {
+    score += wallPressure * 2.1 + s.control * 0.9 + s.wallBreak * 1.2;
+    if (hasTag(tags, 'thrower')) score += 16;
     if (hasTag(tags, 'wall_break')) score += 12;
-    reasons.push('地图适配：墙体较多，投掷、破墙和绕墙控区能创造输出角度。');
+    if (hasTag(tags, 'assassin') && bushDensity >= 5) score += 6;
+    reasons.push('地图适配：该地图墙体较多，投掷、破墙和绕墙输出价值更高。');
     if (s.wallBreak <= 1 && s.range >= 8 && !hasTag(tags, 'thrower')) {
-      score -= 10;
+      score -= 14;
       risks.push('风险：墙多会限制纯长手的输出角度。');
     }
   }
 
-  if (map.bushDensity >= 6) {
-    score += map.bushDensity * 1.3 + s.mobility * 1.1 + s.antiAssassin * 0.9 + s.control * 0.8;
+  if (bushDensity >= 6 || map.assassinFriendly || map.tankFriendly) {
+    score += bushPressure * 2.4 + s.mobility * 0.9 + s.antiAssassin * 0.7 + s.control * 0.65;
     if (hasTag(tags, 'assassin', 'tank')) score += 14;
-    if (hasTag(tags, 'grass_reveal', 'area_control', 'crowd_control')) score += 10;
-    reasons.push('地图适配：草丛较多，近战切入、控草、侦查和反突进价值更高。');
+    if (hasTag(tags, 'grass_reveal', 'bush_control', 'area_control', 'crowd_control')) score += 10;
+    reasons.push('地图适配：该地图草丛较多，需要探草、控草或近身压制能力。');
     if (s.antiAssassin < 5 && hasTag(weaknessTags, 'low_hp', 'poor_escape')) {
-      score -= 12;
-      risks.push('风险：草多时自保弱的英雄容易被突然近身。');
+      score -= 14;
+      risks.push('风险：草多时自保弱的远程英雄容易被突然近身。');
+    }
+    if (hasTag(tags, 'long_range') && !hasTag(tags, 'grass_reveal', 'area_control', 'crowd_control') && s.antiAssassin < 6) {
+      score -= 10;
+      risks.push('风险：该英雄偏远程但探草和反突进不足。');
     }
   }
 
-  if (map.sniperFriendly && hasTag(tags, 'long_range')) {
-    score += 18;
-    reasons.push('地图适配：这张图适合射手或长手英雄建立视野线和消耗优势。');
-  }
-  if (map.throwerFriendly && hasTag(tags, 'thrower')) {
-    score += 18;
-    reasons.push('地图适配：掩体能保护投掷英雄，便于封锁关键区域。');
-  }
-  if (map.assassinFriendly && hasTag(tags, 'assassin', 'mobility')) {
-    score += 13;
-    reasons.push('地图适配：近身路线较多，刺客或高机动英雄能更容易进场。');
-  }
-  if (map.tankFriendly && hasTag(tags, 'tank', 'sustain')) {
-    score += 13;
-    reasons.push('地图适配：地形允许坦克压线、站点或主动开团。');
-  }
-  if (map.wallBreakValue >= 6 && hasTag(tags, 'wall_break')) {
-    score += 18;
-    reasons.push('地图适配：破墙价值高，可以打开关键路线并改变对线空间。');
+  if (chokePoints >= 5) {
+    score += chokePoints * 1.4 + s.control;
+    if (hasTag(tags, 'area_control', 'crowd_control', 'thrower')) score += 11;
+    reasons.push('地图适配：该地图关键路口多，控场、群控和投掷封锁更有价值。');
   }
 
-  if (map.laneStructure === 'open' && hasTag(tags, 'long_range')) score += 10;
-  if (map.laneStructure === 'three_lane' && hasTag(tags, 'mid_control', 'lane_pressure')) score += 9;
-  if (map.laneStructure === 'center_control' && hasTag(tags, 'mid_control', 'area_control')) score += 10;
-  if (map.laneStructure === 'split' && hasTag(tags, 'mobility', 'lane_pressure')) score += 8;
+  if (wallBreakValue >= 6) {
+    if (hasTag(tags, 'wall_break')) {
+      score += wallBreakValue * 2.1;
+      reasons.push('地图适配：该地图破墙价值高，可以打开关键路线并改变对线空间。');
+    }
+    if (hasTag(tags, 'thrower') && s.wallBreak <= 1) {
+      risks.push('风险：该英雄依赖墙体，遇到高破墙阵容时强度会下降。');
+    }
+  }
+
+  if (map.laneStructure === 'open' && hasTag(tags, 'long_range')) score += 9;
+  if (map.laneStructure === 'three_lane' && hasTag(tags, 'lane_pressure', 'long_range', 'duelist')) {
+    score += 9;
+    reasons.push('地图适配：三路分明，边路压制、长手对线或单挑能力更重要。');
+  }
+  if (map.laneStructure === 'center_control' && hasTag(tags, 'mid_control', 'area_control', 'sustain')) {
+    score += 10;
+    reasons.push('地图适配：中心争夺强，中路控制、区域压制和续航更重要。');
+  }
+  if (map.laneStructure === 'split' && hasTag(tags, 'mobility', 'lane_pressure', 'duelist')) score += 8;
   if (map.strongBrawlerTags?.some((tag) => hasTag(tags, tag, tag === 'sniper' ? 'long_range' : tag))) score += 8;
   if (map.weakBrawlerTags?.some((tag) => hasTag(tags, tag, tag === 'short_range' ? 'short_range' : tag))) {
-    score -= 8;
+    score -= 12;
     risks.push('风险：该英雄的标签命中这张图的弱势类型。');
   }
 
@@ -710,21 +726,20 @@ export function calculatePickScore(
   });
   const total = clampPositiveScore(
     8 +
-      mapFit.score * 0.3 * strategy.map +
+      mapFit.score * 0.35 * strategy.map +
       modeFit.score * 0.2 * strategy.mode +
-      Math.max(0, directCounter.score) * 0.18 * strategy.directCounter +
-      Math.max(0, tagCounter.score) * 0.16 * strategy.tagCounter +
-      allyNeed.score * 0.14 * strategy.allyNeed +
-      synergy.score * 0.08 * strategy.synergy +
+      meta * 0.15 * strategy.meta +
+      Math.max(0, counterScore) * 0.15 * strategy.directCounter +
+      allyNeed.score * 0.1 * strategy.allyNeed +
+      synergy.score * 0.05 * strategy.synergy +
       safety * 0.05 +
       versatility * 0.04 +
-      meta * 0.06 * strategy.meta +
       patchImpact * 0.28 +
       trend * 0.18 +
       liveData * 0.16 -
       stalenessPenalty * 0.35 +
       knowledgeScore.score * strategy.knowledge * 0.3 -
-      riskScore * 0.16 * strategy.risk
+      riskScore * 0.1 * strategy.risk
   );
   const reasons = [
     ...recommendationReasons,
