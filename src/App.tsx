@@ -17,9 +17,11 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState<DraftState>({
     teamSide: 'blue',
+    rankMode: 'mythic_plus',
     mySide: 'blue',
     firstPickSide: 'blue',
     currentPhase: 'pick',
+    currentTeam: 'red',
     currentStep: 3,
     blueBans: [],
     redBans: [],

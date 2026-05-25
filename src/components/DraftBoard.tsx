@@ -1,8 +1,8 @@
 import { ShieldBan, Swords } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { buildDraftOrder, getActionForStep, getDraftStage, getDraftStageLabel, getStepInfo, normalizeDraftState, sideLabel, updateDraftStep } from '../algorithm/draft';
+import { createDraftOrder, getActionForStep, getDraftStage, getDraftStageLabel, getStepInfo, normalizeDraftState, sideLabel, updateDraftStep } from '../algorithm/draft';
 import { getBrawlerDisplayName, zhCN } from '../data/translations';
-import type { Brawler, DraftState, TeamSide } from '../types/domain';
+import type { Brawler, DraftState, RankMode, TeamSide } from '../types/domain';
 import { BrawlerPicker } from './BrawlerPicker';
 
 interface Props {
@@ -15,12 +15,12 @@ interface Props {
 export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
   const [history, setHistory] = useState<DraftState[]>([]);
   const normalizedDraft = normalizeDraftState(draft);
-  const draftOrder = buildDraftOrder(normalizedDraft.firstPickSide);
+  const draftOrder = createDraftOrder(normalizedDraft.rankMode, normalizedDraft.firstPickSide);
   const usedIds = [...normalizedDraft.bluePicks, ...normalizedDraft.redPicks, ...normalizedDraft.blueBans, ...normalizedDraft.redBans];
-  const stepInfo = getStepInfo(normalizedDraft.currentStep, normalizedDraft.firstPickSide);
+  const stepInfo = getStepInfo(normalizedDraft.currentStep, normalizedDraft.rankMode, normalizedDraft.firstPickSide);
   const draftStage = getDraftStage(normalizedDraft);
-  const activeTeam = stepInfo?.team;
-  const activePhase = stepInfo?.phase;
+  const activeTeam = stepInfo ? normalizedDraft.currentTeam : null;
+  const activePhase = stepInfo ? normalizedDraft.currentPhase : null;
   const activeSideKey = stepInfo ? getTeamListKey(stepInfo.team, stepInfo.phase) : null;
   const activeList = activeSideKey ? normalizedDraft[activeSideKey] : [];
   const poolDisabledIds = stepInfo && activeList.length < 3 ? usedIds : brawlers.map((brawler) => brawler.id);
@@ -50,7 +50,18 @@ export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
         <Swords className="text-ember" size={20} />
       </div>
 
-      <div className="mb-4 grid grid-cols-[1fr_1fr_1fr_auto] gap-2 rounded-lg border border-white/10 bg-black/18 p-3">
+      <div className="mb-4 grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 rounded-lg border border-white/10 bg-black/18 p-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-black text-muted">段位规则</span>
+          <select
+            className="rounded-md border border-white/10 bg-black/35 px-2 py-2 text-xs font-bold text-ink outline-none"
+            value={normalizedDraft.rankMode}
+            onChange={(event) => onDraftChange(normalizeDraftState({ ...normalizedDraft, rankMode: event.target.value as RankMode, currentStep: 0 }))}
+          >
+            <option value="diamond">钻石：禁用后同时选</option>
+            <option value="mythic_plus">神话及以上：禁用后轮流选</option>
+          </select>
+        </label>
         <label className="flex flex-col gap-1">
           <span className="text-[11px] font-black text-muted">我方阵营</span>
           <select

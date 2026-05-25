@@ -18,6 +18,7 @@ export type VersionSource = 'official' | 'brawlify' | 'manual' | 'mixed';
 export type MapPoolStatus = 'ranked' | 'competitive' | 'casual' | 'archived' | 'unknown';
 export type MapMetaQuality = 'verified' | 'estimated' | 'todo';
 export type TeamSide = 'blue' | 'red';
+export type RankMode = 'diamond' | 'mythic_plus';
 export type DraftPhase = 'ban' | 'pick' | 'complete';
 export type DraftAction = 'ally_ban' | 'enemy_ban' | 'ally_pick' | 'enemy_pick' | 'complete';
 export type BrawlerRole =
@@ -191,9 +192,11 @@ export interface KnowledgeEntry {
 
 export interface DraftState {
   teamSide: TeamSide;
+  rankMode: RankMode;
   mySide: TeamSide;
   firstPickSide: TeamSide;
   currentPhase: DraftPhase;
+  currentTeam: TeamSide;
   currentStep: number;
   blueBans: string[];
   redBans: string[];

@@ -1,4 +1,4 @@
-import type { DraftAction, DraftPhase, DraftState, TeamSide } from '../types/domain';
+import type { DraftAction, DraftPhase, DraftState, RankMode, TeamSide } from '../types/domain';
 
 export type DraftTeam = 'blue' | 'red';
 export type DraftStage = 'ban' | 'first_pick' | 'middle_pick' | 'last_pick' | 'complete';
@@ -7,6 +7,7 @@ export interface DraftOrderStep {
   phase: Exclude<DraftPhase, 'complete'>;
   team: DraftTeam;
   pickNumber?: number;
+  mode?: 'snake_pick' | 'simultaneous_pick';
 }
 
 export interface DraftWeightSet {
@@ -22,33 +23,36 @@ export interface DraftWeightSet {
   risk: number;
 }
 
-// TODO: Ranked BP order needs manual verification against the current game client.
-// This models the common competitive flow: both sides ban, blue first-picks,
-// red gets two picks, blue gets two picks, then red closes with last pick.
-export const rankedDraftOrder: DraftOrderStep[] = [
-  { phase: 'ban', team: 'blue' },
-  { phase: 'ban', team: 'red' },
-  { phase: 'pick', team: 'blue', pickNumber: 1 },
-  { phase: 'pick', team: 'red', pickNumber: 1 },
-  { phase: 'pick', team: 'red', pickNumber: 2 },
-  { phase: 'pick', team: 'blue', pickNumber: 2 },
-  { phase: 'pick', team: 'blue', pickNumber: 3 },
-  { phase: 'pick', team: 'red', pickNumber: 3 }
-];
-
-export function buildDraftOrder(firstPickSide: TeamSide = 'blue'): DraftOrderStep[] {
+export function createDraftOrder(rankMode: RankMode = 'mythic_plus', firstPickSide: TeamSide = 'blue'): DraftOrderStep[] {
+  // Diamond uses bans first, then simultaneous hero picks. Mythic+ uses bans first,
+  // then snake picks; firstPickSide is randomly decided by the game for that match.
   const secondPickSide = firstPickSide === 'blue' ? 'red' : 'blue';
+  if (rankMode === 'diamond') {
+    return [
+      { phase: 'ban', team: 'blue' },
+      { phase: 'ban', team: 'red' },
+      { phase: 'pick', team: 'blue', pickNumber: 1, mode: 'simultaneous_pick' },
+      { phase: 'pick', team: 'blue', pickNumber: 2, mode: 'simultaneous_pick' },
+      { phase: 'pick', team: 'blue', pickNumber: 3, mode: 'simultaneous_pick' },
+      { phase: 'pick', team: 'red', pickNumber: 1, mode: 'simultaneous_pick' },
+      { phase: 'pick', team: 'red', pickNumber: 2, mode: 'simultaneous_pick' },
+      { phase: 'pick', team: 'red', pickNumber: 3, mode: 'simultaneous_pick' }
+    ];
+  }
+
   return [
-    { phase: 'ban', team: firstPickSide },
-    { phase: 'ban', team: secondPickSide },
-    { phase: 'pick', team: firstPickSide, pickNumber: 1 },
-    { phase: 'pick', team: secondPickSide, pickNumber: 1 },
-    { phase: 'pick', team: secondPickSide, pickNumber: 2 },
-    { phase: 'pick', team: firstPickSide, pickNumber: 2 },
-    { phase: 'pick', team: firstPickSide, pickNumber: 3 },
-    { phase: 'pick', team: secondPickSide, pickNumber: 3 }
+    { phase: 'ban', team: 'blue' },
+    { phase: 'ban', team: 'red' },
+    { phase: 'pick', team: firstPickSide, pickNumber: 1, mode: 'snake_pick' },
+    { phase: 'pick', team: secondPickSide, pickNumber: 1, mode: 'snake_pick' },
+    { phase: 'pick', team: secondPickSide, pickNumber: 2, mode: 'snake_pick' },
+    { phase: 'pick', team: firstPickSide, pickNumber: 2, mode: 'snake_pick' },
+    { phase: 'pick', team: firstPickSide, pickNumber: 3, mode: 'snake_pick' },
+    { phase: 'pick', team: secondPickSide, pickNumber: 3, mode: 'snake_pick' }
   ];
 }
+
+export const rankedDraftOrder = createDraftOrder('mythic_plus', 'blue');
 
 export const draftWeights: Record<DraftStage, DraftWeightSet> = {
   first_pick: {
@@ -121,8 +125,8 @@ export function sideLabel(side: TeamSide) {
   return side === 'blue' ? '蓝方 / 先选方' : '红方 / 后选方';
 }
 
-export function getStepInfo(currentStep: number, firstPickSide: TeamSide = 'blue') {
-  const draftOrder = buildDraftOrder(firstPickSide);
+export function getStepInfo(currentStep: number, rankMode: RankMode = 'mythic_plus', firstPickSide: TeamSide = 'blue') {
+  const draftOrder = createDraftOrder(rankMode, firstPickSide);
   const step = clampStep(currentStep, draftOrder);
   return draftOrder[step] ?? null;
 }
@@ -134,10 +138,11 @@ export function getActionForStep(step: DraftOrderStep | null, teamSide: TeamSide
   return isAlly ? 'ally_pick' : 'enemy_pick';
 }
 
-export function getDraftStage(draft: Pick<DraftState, 'currentStep' | 'currentPhase' | 'nextAction'>): DraftStage {
+export function getDraftStage(draft: Pick<DraftState, 'currentStep' | 'currentPhase' | 'nextAction' | 'rankMode' | 'firstPickSide'>): DraftStage {
   if (draft.currentPhase === 'complete' || draft.nextAction === 'complete') return 'complete';
   if (draft.currentPhase === 'ban' || draft.nextAction.endsWith('_ban')) return 'ban';
-  const pickStepsBeforeOrAt = rankedDraftOrder.slice(0, clampStep(draft.currentStep) + 1).filter((step) => step.phase === 'pick').length;
+  const draftOrder = createDraftOrder(draft.rankMode, draft.firstPickSide);
+  const pickStepsBeforeOrAt = draftOrder.slice(0, clampStep(draft.currentStep, draftOrder) + 1).filter((step) => step.phase === 'pick').length;
   if (pickStepsBeforeOrAt <= 1) return 'first_pick';
   if (pickStepsBeforeOrAt >= 6) return 'last_pick';
   return 'middle_pick';
@@ -167,25 +172,30 @@ export function getDraftStageReason(draft: DraftState) {
 }
 
 export function normalizeDraftState(draft: DraftState): DraftState {
+  const rankMode = draft.rankMode ?? 'mythic_plus';
   const firstPickSide = draft.firstPickSide ?? 'blue';
-  const currentStep = clampStep(draft.currentStep ?? 0, buildDraftOrder(firstPickSide));
-  const step = getStepInfo(currentStep, firstPickSide);
-  const teamSide = draft.teamSide ?? 'blue';
-  const mySide = draft.mySide ?? teamSide;
+  const draftOrder = createDraftOrder(rankMode, firstPickSide);
+  const currentStep = clampStep(draft.currentStep ?? 0, draftOrder);
+  const step = getStepInfo(currentStep, rankMode, firstPickSide);
+  const mySide = draft.mySide ?? draft.teamSide ?? 'blue';
+  const teamSide = mySide;
+  const currentTeam = step?.team ?? draft.currentTeam ?? mySide;
   const bluePicks = draft.bluePicks ?? (teamSide === 'blue' ? draft.allyPicks : draft.enemyPicks) ?? [];
   const redPicks = draft.redPicks ?? (teamSide === 'red' ? draft.allyPicks : draft.enemyPicks) ?? [];
   const blueBans = draft.blueBans ?? (teamSide === 'blue' ? draft.allyBans : draft.enemyBans) ?? [];
   const redBans = draft.redBans ?? (teamSide === 'red' ? draft.allyBans : draft.enemyBans) ?? [];
   const currentPhase = step?.phase ?? 'complete';
-  const nextAction = getActionForStep(step, teamSide);
+  const nextAction = getActionForStep(step, mySide);
 
   return {
     ...draft,
     teamSide,
+    rankMode,
     mySide,
     firstPickSide,
     currentStep,
     currentPhase,
+    currentTeam,
     nextAction,
     bluePicks,
     redPicks,
@@ -199,7 +209,7 @@ export function normalizeDraftState(draft: DraftState): DraftState {
 }
 
 export function updateDraftSide(draft: DraftState, teamSide: TeamSide) {
-  return normalizeDraftState({ ...draft, teamSide });
+  return normalizeDraftState({ ...draft, teamSide, mySide: teamSide });
 }
 
 export function updateDraftStep(draft: DraftState, currentStep: number) {
