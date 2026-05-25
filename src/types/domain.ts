@@ -44,6 +44,8 @@ export interface CounterRelation {
   reason: string;
 }
 
+export type CounterReference = CounterRelation | string;
+
 export interface Brawler {
   id: string;
   name: string;
@@ -66,6 +68,8 @@ export interface Brawler {
   mapPreferences?: string[];
   synergyTags?: string[];
   riskTags?: string[];
+  tags?: string[];
+  weaknessTags?: string[];
   dataQuality?: 'verified' | 'estimated' | 'todo';
   sourceNote?: string;
   lastUpdated?: string;
@@ -76,8 +80,8 @@ export interface Brawler {
   stats: BrawlerStats;
   metaTier: MetaTier;
   balancePatchDate: string;
-  counters: CounterRelation[];
-  counteredBy: CounterRelation[];
+  counters?: CounterReference[];
+  counteredBy?: CounterReference[];
   notes?: string;
 }
 
@@ -139,6 +143,10 @@ export interface ScoreBreakdown {
   modeFit: number;
   synergy: number;
   counter: number;
+  directCounter: number;
+  tagCounter: number;
+  allyNeed: number;
+  risk: number;
   meta: number;
   knowledge: number;
   total: number;

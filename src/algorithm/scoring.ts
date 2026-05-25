@@ -2,6 +2,7 @@ import type {
   BrawlMap,
   Brawler,
   BrawlerRole,
+  CounterReference,
   DraftState,
   GameMode,
   KnowledgeEntry,
@@ -11,6 +12,45 @@ import type {
   TeamAnalysis
 } from '../types/domain';
 
+type RoleFlag =
+  | 'tank'
+  | 'assassin'
+  | 'thrower'
+  | 'longRange'
+  | 'healer'
+  | 'wallBreak'
+  | 'control'
+  | 'burst'
+  | 'highDps'
+  | 'antiTank'
+  | 'antiAssassin'
+  | 'mobility'
+  | 'sustain'
+  | 'objective';
+
+export interface CompositionProfile {
+  brawlers: Brawler[];
+  tags: Set<string>;
+  weaknessTags: Set<string>;
+  hasTank: boolean;
+  hasAssassin: boolean;
+  hasThrower: boolean;
+  hasLongRange: boolean;
+  hasHealer: boolean;
+  hasWallBreak: boolean;
+  hasControl: boolean;
+  hasBurst: boolean;
+  hasHighDps: boolean;
+  lacksRange: boolean;
+  lacksControl: boolean;
+  lacksWallBreak: boolean;
+  lacksAntiTank: boolean;
+  lacksAntiAssassin: boolean;
+  lacksDamage: boolean;
+  lacksSurvivability: boolean;
+  lacksObjectivePressure: boolean;
+}
+
 const tierScore: Record<MetaTier, number> = {
   S: 10,
   A: 7,
@@ -19,12 +59,15 @@ const tierScore: Record<MetaTier, number> = {
   D: -3
 };
 
-const strategyWeights: Record<StrategyMode, { map: number; mode: number; synergy: number; counter: number; meta: number; knowledge: number }> = {
-  balanced: { map: 1, mode: 1, synergy: 1, counter: 1, meta: 0.8, knowledge: 0.7 },
-  safe: { map: 1, mode: 1.1, synergy: 1.25, counter: 0.8, meta: 1, knowledge: 0.8 },
-  aggressive: { map: 1, mode: 0.9, synergy: 0.8, counter: 1.35, meta: 0.7, knowledge: 0.5 },
-  pro: { map: 1.1, mode: 1, synergy: 1.2, counter: 1.15, meta: 0.9, knowledge: 1.35 },
-  ladder: { map: 0.9, mode: 1, synergy: 0.8, counter: 0.9, meta: 1.35, knowledge: 0.45 }
+const strategyWeights: Record<
+  StrategyMode,
+  { map: number; mode: number; synergy: number; directCounter: number; tagCounter: number; allyNeed: number; meta: number; knowledge: number; risk: number }
+> = {
+  balanced: { map: 0.9, mode: 0.9, synergy: 0.75, directCounter: 1, tagCounter: 0.95, allyNeed: 0.95, meta: 0.7, knowledge: 0.6, risk: 1 },
+  safe: { map: 0.95, mode: 1, synergy: 1.05, directCounter: 0.9, tagCounter: 0.85, allyNeed: 1.1, meta: 0.9, knowledge: 0.7, risk: 1.2 },
+  aggressive: { map: 0.8, mode: 0.8, synergy: 0.6, directCounter: 1.25, tagCounter: 1.2, allyNeed: 0.8, meta: 0.55, knowledge: 0.45, risk: 0.8 },
+  pro: { map: 1, mode: 0.9, synergy: 1, directCounter: 1.05, tagCounter: 1, allyNeed: 1.1, meta: 0.8, knowledge: 1.25, risk: 1 },
+  ladder: { map: 0.8, mode: 0.95, synergy: 0.65, directCounter: 0.9, tagCounter: 0.85, allyNeed: 0.8, meta: 1.25, knowledge: 0.4, risk: 0.85 }
 };
 
 function clampScore(value: number) {
@@ -37,6 +80,133 @@ function closeTo(value: number, target: number, weight = 1) {
 
 function hasRole(brawler: Brawler, role: BrawlerRole) {
   return brawler.roles.includes(role);
+}
+
+function displayName(brawler: Brawler) {
+  return brawler.displayNameZh?.trim() || brawler.name;
+}
+
+function relationTargetId(relation: CounterReference) {
+  return typeof relation === 'string' ? relation : relation.targetId;
+}
+
+function relationStrength(relation: CounterReference) {
+  return typeof relation === 'string' ? 6 : relation.strength;
+}
+
+function relationReason(relation: CounterReference) {
+  return typeof relation === 'string' ? '' : relation.reason;
+}
+
+function hasTag(tags: Set<string>, ...candidates: string[]) {
+  return candidates.some((tag) => tags.has(tag));
+}
+
+function inferBrawlerTags(brawler: Brawler) {
+  const tags = new Set<string>([...(brawler.tags ?? []), ...(brawler.synergyTags ?? []), ...brawler.roles]);
+  const s = brawler.stats;
+
+  if (s.range >= 8 || hasRole(brawler, 'sniper')) tags.add('long_range');
+  if (hasRole(brawler, 'thrower')) tags.add('thrower');
+  if (hasRole(brawler, 'assassin')) tags.add('assassin');
+  if (hasRole(brawler, 'tank')) tags.add('tank');
+  if (hasRole(brawler, 'support') || s.sustain >= 8) tags.add('healer');
+  if (s.wallBreak >= 6 || hasRole(brawler, 'wall_breaker')) tags.add('wall_break');
+  if (s.burst >= 7) tags.add('burst_damage');
+  if (s.dps >= 7) tags.add('safe_dps');
+  if (s.control >= 7 || hasRole(brawler, 'controller')) tags.add('area_control');
+  if (s.control >= 7 || hasRole(brawler, 'mid')) tags.add('mid_control');
+  if (s.mobility >= 8 || s.engage >= 7) tags.add('mobility');
+  if (s.sustain >= 7) tags.add('sustain');
+  if (s.zoneHold >= 7) tags.add('objective_control');
+  if (s.dps >= 7 || s.control >= 7) tags.add('anti_tank');
+  if (s.antiAssassin >= 7 || s.control >= 7 || s.survivability >= 8) tags.add('anti_assassin');
+  if (s.control >= 8) tags.add('crowd_control');
+  if (s.survivability >= 8) tags.add('shield');
+  if (s.ballCarry >= 7 || hasRole(brawler, 'lane')) tags.add('lane_pressure');
+
+  return tags;
+}
+
+function inferWeaknessTags(brawler: Brawler) {
+  const tags = new Set<string>([...(brawler.weaknessTags ?? []), ...(brawler.riskTags ?? [])]);
+  const s = brawler.stats;
+
+  if (s.range <= 4) tags.add('short_range');
+  if (s.survivability <= 4) tags.add('low_hp');
+  if (s.mobility <= 4 && s.survivability <= 5) tags.add('poor_escape');
+  if (s.burst <= 4) tags.add('low_burst');
+  if (s.range <= 5) tags.add('weak_to_long_range');
+  if (s.wallBreak <= 1 && s.range >= 8) tags.add('weak_to_thrower');
+  if (s.antiAssassin <= 4 || hasRole(brawler, 'thrower')) tags.add('weak_to_assassin');
+  if (s.dps <= 5 && s.control <= 5) tags.add('weak_to_tank');
+  if (s.wallBreak <= 1 && (hasRole(brawler, 'sniper') || hasRole(brawler, 'thrower'))) tags.add('weak_to_wall_break');
+  if (s.mobility <= 4) tags.add('weak_to_crowd_control');
+  if (brawler.weaknesses?.some((item) => item.includes('reload'))) tags.add('reload_dependent');
+
+  return tags;
+}
+
+function getFlag(profile: CompositionProfile, flag: RoleFlag) {
+  const value = {
+    tank: profile.hasTank,
+    assassin: profile.hasAssassin,
+    thrower: profile.hasThrower,
+    longRange: profile.hasLongRange,
+    healer: profile.hasHealer,
+    wallBreak: profile.hasWallBreak,
+    control: profile.hasControl,
+    burst: profile.hasBurst,
+    highDps: profile.hasHighDps,
+    antiTank: hasTag(profile.tags, 'anti_tank'),
+    antiAssassin: hasTag(profile.tags, 'anti_assassin'),
+    mobility: hasTag(profile.tags, 'mobility'),
+    sustain: hasTag(profile.tags, 'sustain'),
+    objective: hasTag(profile.tags, 'objective_control')
+  }[flag];
+  return value;
+}
+
+function buildCompositionProfile(brawlers: Brawler[]): CompositionProfile {
+  const tags = new Set<string>();
+  const weaknessTags = new Set<string>();
+  for (const brawler of brawlers) {
+    inferBrawlerTags(brawler).forEach((tag) => tags.add(tag));
+    inferWeaknessTags(brawler).forEach((tag) => weaknessTags.add(tag));
+  }
+
+  const avg = (selector: (brawler: Brawler) => number) => (brawlers.length ? brawlers.reduce((sum, brawler) => sum + selector(brawler), 0) / brawlers.length : 0);
+
+  return {
+    brawlers,
+    tags,
+    weaknessTags,
+    hasTank: hasTag(tags, 'tank'),
+    hasAssassin: hasTag(tags, 'assassin'),
+    hasThrower: hasTag(tags, 'thrower'),
+    hasLongRange: hasTag(tags, 'long_range'),
+    hasHealer: hasTag(tags, 'healer', 'sustain'),
+    hasWallBreak: hasTag(tags, 'wall_break'),
+    hasControl: hasTag(tags, 'area_control', 'mid_control', 'crowd_control'),
+    hasBurst: hasTag(tags, 'burst_damage'),
+    hasHighDps: hasTag(tags, 'safe_dps'),
+    lacksRange: brawlers.length > 0 && avg((b) => b.stats.range) < 6,
+    lacksControl: brawlers.length > 0 && avg((b) => b.stats.control) < 6,
+    lacksWallBreak: !hasTag(tags, 'wall_break'),
+    lacksAntiTank: !hasTag(tags, 'anti_tank'),
+    lacksAntiAssassin: !hasTag(tags, 'anti_assassin'),
+    lacksDamage: brawlers.length > 0 && avg((b) => Math.max(b.stats.dps, b.stats.burst)) < 6,
+    lacksSurvivability: brawlers.length > 0 && avg((b) => b.stats.survivability) < 6,
+    lacksObjectivePressure: brawlers.length > 0 && !hasTag(tags, 'objective_control', 'safe_dps')
+  };
+}
+
+export function analyzeEnemyComposition(enemyPicks: string[], heroes: Brawler[]) {
+  return buildCompositionProfile(enemyPicks.map((id) => heroes.find((hero) => hero.id === id)).filter(Boolean) as Brawler[]);
+}
+
+export function analyzeAllyComposition(allyPicks: string[], heroes: Brawler[]) {
+  return buildCompositionProfile(allyPicks.map((id) => heroes.find((hero) => hero.id === id)).filter(Boolean) as Brawler[]);
 }
 
 export function calculateMapFitScore(brawler: Brawler, map: BrawlMap) {
@@ -183,25 +353,164 @@ export function calculateSynergyScore(candidate: Brawler, allyBrawlers: Brawler[
   return { score: clampScore(score), reasons, risks };
 }
 
-export function calculateCounterScore(candidate: Brawler, enemyBrawlers: Brawler[]) {
+export function calculateDirectCounterScore(candidate: Brawler, enemyPicks: string[], heroes: Brawler[]) {
   const reasons: string[] = [];
   const risks: string[] = [];
   let score = 0;
+  const enemyBrawlers = enemyPicks.map((id) => heroes.find((hero) => hero.id === id)).filter(Boolean) as Brawler[];
 
   for (const enemy of enemyBrawlers) {
-    const counter = candidate.counters.find((item) => item.targetId === enemy.id);
-    if (counter) {
-      score += counter.strength * 3;
-      reasons.push(`克制 ${enemy.name}：${counter.reason}`);
+    const directCounter = candidate.counters?.find((item) => relationTargetId(item) === enemy.id);
+    if (directCounter) {
+      const strength = relationStrength(directCounter);
+      score += strength * 4;
+      reasons.push(`直接克制 ${displayName(enemy)}：${displayName(candidate)} 对该英雄有明确对位优势，可以限制敌方核心发挥。`);
     }
-    const punishedByEnemy = candidate.counteredBy.find((item) => item.targetId === enemy.id);
-    if (punishedByEnemy) {
-      score -= punishedByEnemy.strength * 2.5;
-      risks.push(`被 ${enemy.name} 针对：${punishedByEnemy.reason}`);
+
+    const punishedByEnemy = candidate.counteredBy?.find((item) => relationTargetId(item) === enemy.id);
+    const enemyCountersCandidate = enemy.counters?.find((item) => relationTargetId(item) === candidate.id);
+    const threat = punishedByEnemy ?? enemyCountersCandidate;
+    if (threat) {
+      const strength = relationStrength(threat);
+      score -= strength * 3;
+      risks.push(`敌方 ${displayName(enemy)} 可能反制 ${displayName(candidate)}，这个选择需要队友保护。`);
     }
   }
 
   return { score: clampScore(score), reasons, risks };
+}
+
+export function calculateCounterScore(candidate: Brawler, enemyBrawlers: Brawler[]) {
+  return calculateDirectCounterScore(candidate, enemyBrawlers.map((brawler) => brawler.id), enemyBrawlers);
+}
+
+export function calculateTagCounterScore(candidate: Brawler, enemyProfile: CompositionProfile) {
+  const tags = inferBrawlerTags(candidate);
+  const reasons: string[] = [];
+  const risks: string[] = [];
+  let score = 0;
+
+  if (!enemyProfile.brawlers.length) return { score, reasons, risks };
+
+  if (enemyProfile.hasTank && hasTag(tags, 'anti_tank', 'safe_dps', 'area_control', 'crowd_control')) {
+    score += 14;
+    reasons.push('针对敌方已选坦克英雄，该英雄具备反坦克、控制或持续输出能力，能限制敌方正面推进。');
+  }
+  if (enemyProfile.hasAssassin && hasTag(tags, 'anti_assassin', 'crowd_control', 'shield', 'sustain')) {
+    score += 14;
+    reasons.push('敌方已经选择刺客英雄，该英雄具备反刺客、控制或高生存能力，能降低我方后排被切入的风险。');
+  }
+  if (enemyProfile.hasThrower && hasTag(tags, 'assassin', 'mobility', 'wall_break')) {
+    score += 16;
+    reasons.push('敌方已经选择投掷英雄，我方选择高机动或破墙英雄可以绕开墙体压制后排。');
+  }
+  if (enemyProfile.hasLongRange && hasTag(tags, 'assassin', 'mobility', 'wall_break', 'lane_pressure')) {
+    score += 10;
+    reasons.push('针对敌方长手阵容，该英雄能通过突进、绕后或破墙压缩敌方输出空间。');
+  }
+  if (enemyProfile.hasHealer && hasTag(tags, 'burst_damage', 'safe_dps', 'area_control', 'crowd_control')) {
+    score += 8;
+    reasons.push('敌方有治疗或续航能力，该英雄可以用爆发、高 DPS 或控制压制敌方持续作战。');
+  }
+  if (enemyProfile.hasWallBreak && hasTag(tags, 'mobility', 'sustain', 'mid_control')) {
+    score += 8;
+    reasons.push('敌方具备破墙能力，该英雄机动性、续航或中路控制较好，能适应地形被打开后的对线。');
+  }
+  if (hasTag(enemyProfile.weaknessTags, 'weak_to_assassin') && hasTag(tags, 'assassin', 'mobility')) {
+    score += 8;
+    reasons.push('敌方阵容缺少反刺客能力，该英雄可以作为后手切入点。');
+  }
+  if (hasTag(enemyProfile.weaknessTags, 'weak_to_long_range') && hasTag(tags, 'long_range')) {
+    score += 10;
+    reasons.push('敌方阵容射程压力不足，该英雄可以用长手消耗建立对线优势。');
+  }
+
+  if (enemyProfile.hasAssassin && hasTag(inferWeaknessTags(candidate), 'weak_to_assassin', 'poor_escape', 'low_hp')) {
+    score -= 12;
+    risks.push('敌方已有刺客，而该英雄自保偏弱，容易成为切入目标。');
+  }
+  if (enemyProfile.hasThrower && hasTag(inferWeaknessTags(candidate), 'weak_to_thrower')) {
+    score -= 8;
+    risks.push('敌方投掷能限制该英雄输出角度，需要谨慎选择。');
+  }
+
+  return { score: clampScore(score), reasons, risks };
+}
+
+export function calculateAllyNeedScore(candidate: Brawler, allyProfile: CompositionProfile, map?: BrawlMap) {
+  const tags = inferBrawlerTags(candidate);
+  const reasons: string[] = [];
+  let score = 0;
+
+  if (!allyProfile.brawlers.length) return { score, reasons };
+
+  if (allyProfile.lacksRange && hasTag(tags, 'long_range')) {
+    score += 10;
+    reasons.push('我方目前缺少射程，该英雄可以补足远程消耗和对线压制。');
+  }
+  if (allyProfile.lacksControl && hasTag(tags, 'area_control', 'mid_control', 'crowd_control')) {
+    score += 10;
+    reasons.push('我方目前缺少控场，该英雄能补中路控制和区域压制。');
+  }
+  if (allyProfile.lacksWallBreak && hasTag(tags, 'wall_break')) {
+    score += map && map.wallBreakValue >= 6 ? 14 : 10;
+    reasons.push(map && map.wallBreakValue >= 6 ? '我方目前缺少破墙能力，而这张图墙体价值较高，因此该英雄能改善阵容结构。' : '我方目前缺少破墙能力，该英雄能打开关键路线。');
+  }
+  if (allyProfile.lacksAntiTank && hasTag(tags, 'anti_tank', 'safe_dps')) {
+    score += 10;
+    reasons.push('我方目前缺少反坦克和持续输出，该英雄能补足处理前排的能力。');
+  }
+  if (allyProfile.lacksAntiAssassin && hasTag(tags, 'anti_assassin', 'crowd_control', 'shield')) {
+    score += 10;
+    reasons.push('我方目前缺少反刺客能力，该英雄能保护后排并限制敌方切入。');
+  }
+  if (allyProfile.lacksDamage && hasTag(tags, 'burst_damage', 'safe_dps')) {
+    score += 8;
+    reasons.push('我方目前输出不足，该英雄能补充爆发或稳定伤害。');
+  }
+  if (allyProfile.lacksSurvivability && hasTag(tags, 'sustain', 'shield', 'healer')) {
+    score += 8;
+    reasons.push('我方目前生存和续航偏弱，该英雄能提高长回合容错。');
+  }
+  if (allyProfile.lacksObjectivePressure && hasTag(tags, 'objective_control', 'safe_dps')) {
+    score += 8;
+    reasons.push('我方目前目标压制不足，该英雄能提升站点、金库或中路目标处理能力。');
+  }
+
+  return { score: clampScore(score), reasons };
+}
+
+export function generateCounterReasons(candidate: Brawler, enemyPicks: Brawler[], enemyProfile: CompositionProfile, allyProfile: CompositionProfile) {
+  const tags = inferBrawlerTags(candidate);
+  const reasons: string[] = [];
+  const enemyNames = enemyPicks.map(displayName);
+
+  if (enemyNames.length && hasTag(tags, 'anti_tank') && enemyProfile.hasTank) {
+    reasons.push(`针对敌方 ${enemyNames.join('、')} 的前排压力，${displayName(candidate)} 可以用持续输出或控制限制推进。`);
+  }
+  if (enemyNames.length && hasTag(tags, 'anti_assassin') && enemyProfile.hasAssassin) {
+    reasons.push(`敌方已选刺客，${displayName(candidate)} 的反刺客能力能保护我方关键位置。`);
+  }
+  if (enemyProfile.hasThrower && hasTag(tags, 'assassin', 'mobility', 'wall_break')) {
+    reasons.push(`敌方有投掷英雄，${displayName(candidate)} 可以通过突进、绕后或破墙处理墙后威胁。`);
+  }
+  if (enemyProfile.hasLongRange && hasTag(tags, 'assassin', 'mobility', 'wall_break')) {
+    reasons.push(`敌方长手较多，${displayName(candidate)} 能压缩敌方站位，减少被远程白白消耗。`);
+  }
+  if (enemyProfile.hasHealer && hasTag(tags, 'burst_damage', 'safe_dps', 'crowd_control')) {
+    reasons.push(`敌方有续航点，${displayName(candidate)} 可以用爆发、持续伤害或控制打断敌方节奏。`);
+  }
+  if (allyProfile.lacksWallBreak && hasTag(tags, 'wall_break')) {
+    reasons.push(`我方缺少破墙能力，${displayName(candidate)} 能补足地形处理。`);
+  }
+  if (allyProfile.lacksControl && hasTag(tags, 'area_control', 'mid_control', 'crowd_control')) {
+    reasons.push(`我方缺少控场，${displayName(candidate)} 能补充中路和关键区域压制。`);
+  }
+  if (allyProfile.lacksDamage && hasTag(tags, 'burst_damage', 'safe_dps')) {
+    reasons.push(`我方输出不足，${displayName(candidate)} 能补稳定伤害或爆发窗口。`);
+  }
+
+  return reasons;
 }
 
 export function calculateKnowledgeScore(candidate: Brawler, map: BrawlMap, knowledge: KnowledgeEntry[]) {
@@ -233,32 +542,56 @@ export function calculatePickScore(
 ): ScoreBreakdown {
   const allyBrawlers = draft.allyPicks.map((id) => allBrawlers.find((b) => b.id === id)).filter(Boolean) as Brawler[];
   const enemyBrawlers = draft.enemyPicks.map((id) => allBrawlers.find((b) => b.id === id)).filter(Boolean) as Brawler[];
+  const enemyProfile = analyzeEnemyComposition(draft.enemyPicks, allBrawlers);
+  const allyProfile = analyzeAllyComposition(draft.allyPicks, allBrawlers);
   const mapFit = calculateMapFitScore(candidate, map);
   const modeFit = calculateModeFitScore(candidate, map.gameMode);
   const synergy = calculateSynergyScore(candidate, allyBrawlers);
-  const counter = calculateCounterScore(candidate, enemyBrawlers);
+  const directCounter = calculateDirectCounterScore(candidate, draft.enemyPicks, allBrawlers);
+  const tagCounter = calculateTagCounterScore(candidate, enemyProfile);
+  const allyNeed = calculateAllyNeedScore(candidate, allyProfile, map);
   const knowledgeScore = calculateKnowledgeScore(candidate, map, knowledge);
   const meta = calculateMetaScore(candidate, draft.considerMeta);
+  const generatedCounterReasons = generateCounterReasons(candidate, enemyBrawlers, enemyProfile, allyProfile);
+  const counterScore = directCounter.score + tagCounter.score;
+  const riskScore = Math.max(0, -directCounter.score) + directCounter.risks.length * 4 + tagCounter.risks.length * 4;
   const weights = strategyWeights[draft.strategyMode];
   const total = clampScore(
     mapFit.score * weights.map +
       modeFit.score * weights.mode +
       synergy.score * weights.synergy +
-      counter.score * weights.counter +
+      directCounter.score * weights.directCounter +
+      tagCounter.score * weights.tagCounter +
+      allyNeed.score * weights.allyNeed +
       meta * weights.meta +
-      knowledgeScore.score * weights.knowledge
+      knowledgeScore.score * weights.knowledge -
+      riskScore * weights.risk
   );
+  const reasons = [
+    ...directCounter.reasons,
+    ...tagCounter.reasons,
+    ...generatedCounterReasons,
+    ...allyNeed.reasons,
+    ...mapFit.reasons,
+    ...modeFit.reasons,
+    ...synergy.reasons,
+    ...knowledgeScore.reasons
+  ];
 
   return {
     mapFit: Math.round(mapFit.score),
     modeFit: Math.round(modeFit.score),
     synergy: Math.round(synergy.score),
-    counter: Math.round(counter.score),
+    counter: Math.round(counterScore),
+    directCounter: Math.round(directCounter.score),
+    tagCounter: Math.round(tagCounter.score),
+    allyNeed: Math.round(allyNeed.score),
+    risk: Math.round(riskScore),
     meta: Math.round(meta),
     knowledge: Math.round(knowledgeScore.score),
     total: Math.round(total),
-    reasons: [...mapFit.reasons, ...modeFit.reasons, ...synergy.reasons, ...counter.reasons, ...knowledgeScore.reasons].slice(0, 6),
-    risks: [...mapFit.risks, ...modeFit.risks, ...synergy.risks, ...counter.risks].slice(0, 6),
+    reasons: reasons.length ? Array.from(new Set(reasons)).slice(0, 6) : ['该英雄在当前地图和模式下综合适配度较高，可作为稳定补位选择。'],
+    risks: [...mapFit.risks, ...modeFit.risks, ...synergy.risks, ...directCounter.risks, ...tagCounter.risks].slice(0, 6),
     tags: [...candidate.roles, candidate.metaTier].slice(0, 5)
   };
 }
@@ -269,13 +602,13 @@ export function calculateBanScore(candidate: Brawler, map: BrawlMap, draft: Draf
   const allyBrawlers = draft.allyPicks.map((id) => allBrawlers.find((b) => b.id === id)).filter(Boolean) as Brawler[];
   const reasons: string[] = [];
   const protectsAgainst: string[] = [];
-  let threat = baseScore.mapFit * 0.35 + baseScore.modeFit * 0.35 + baseScore.meta * 1.2;
+  let threat = baseScore.mapFit * 0.35 + baseScore.modeFit * 0.35 + baseScore.meta * 1.2 + baseScore.counter * 0.35;
 
   for (const ally of allyBrawlers) {
-    const relation = candidate.counters.find((item) => item.targetId === ally.id);
+    const relation = candidate.counters?.find((item) => relationTargetId(item) === ally.id);
     if (relation) {
-      threat += relation.strength * 4;
-      protectsAgainst.push(`${candidate.name} 克制我方 ${ally.name}`);
+      threat += relationStrength(relation) * 4;
+      protectsAgainst.push(`${displayName(candidate)} 克制我方 ${displayName(ally)}`);
     }
   }
 
@@ -313,11 +646,11 @@ export function analyzeTeam(allyBrawlers: Brawler[], enemyBrawlers: Brawler[], m
   if (map.openness >= 8 && allyBrawlers.filter((b) => b.stats.range <= 4).length >= 2) risks.push('开阔图短手过多，对线压力大。');
 
   for (const enemy of enemyBrawlers) {
-    const answers = allyBrawlers.filter((ally) => ally.counters.some((c) => c.targetId === enemy.id));
+    const answers = allyBrawlers.filter((ally) => ally.counters?.some((counter) => relationTargetId(counter) === enemy.id));
     if (answers.length) {
-      counterPlan.push(`用 ${answers.map((b) => b.name).join('/')} 处理 ${enemy.name}。`);
+      counterPlan.push(`用 ${answers.map(displayName).join('/')} 处理 ${displayName(enemy)}。`);
     } else {
-      counterPlan.push(`敌方 ${enemy.name} 暂无明确克制点，后手优先补克制选择。`);
+      counterPlan.push(`敌方 ${displayName(enemy)} 暂无明确克制点，后手优先补克制选择。`);
     }
   }
 
