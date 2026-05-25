@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { brawlers, checkDataFreshness, currentVersionMeta, getBrawlerMetaSnapshot, knowledgeBase, maps } from './data';
 import { buildAnalysis, recommendBans, recommendCompositions, recommendCounterPicks, recommendPicks } from './algorithm/recommendations';
-import { normalizeDraftState } from './algorithm/draft';
+import { DEFAULT_BANS_PER_TEAM, normalizeDraftState } from './algorithm/draft';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { DraftBoard } from './components/DraftBoard';
 import { MapSelector } from './components/MapSelector';
@@ -20,6 +20,7 @@ export default function App() {
     rankMode: 'mythic_plus',
     mySide: 'blue',
     firstPickSide: 'blue',
+    bansPerTeam: DEFAULT_BANS_PER_TEAM,
     currentPhase: 'ban',
     currentTeam: 'blue',
     currentStep: 0,

@@ -202,6 +202,7 @@ export interface DraftState {
   rankMode: RankMode;
   mySide: TeamSide;
   firstPickSide: TeamSide;
+  bansPerTeam: number;
   currentPhase: DraftPhase;
   currentTeam: TeamSide;
   currentStep: number;

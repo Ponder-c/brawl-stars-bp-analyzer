@@ -1,6 +1,6 @@
 import { ShieldBan, Swords } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { createDraftOrder, getActionForStep, getDraftStage, getDraftStageLabel, getStepInfo, normalizeDraftState, sideLabel, updateDraftStep } from '../algorithm/draft';
+import { PICKS_PER_TEAM, createDraftOrder, getActionForStep, getStepInfo, normalizeDraftState, sideLabel, updateDraftStep } from '../algorithm/draft';
 import { getBrawlerDisplayName, zhCN } from '../data/translations';
 import type { Brawler, DraftState, RankMode, TeamSide } from '../types/domain';
 import { BrawlerPicker } from './BrawlerPicker';
@@ -15,18 +15,29 @@ interface Props {
 export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
   const [history, setHistory] = useState<DraftState[]>([]);
   const normalizedDraft = normalizeDraftState(draft);
-  const draftOrder = createDraftOrder(normalizedDraft.rankMode, normalizedDraft.firstPickSide);
+  const draftOrder = createDraftOrder({
+    rankMode: normalizedDraft.rankMode,
+    firstPickSide: normalizedDraft.firstPickSide,
+    bansPerTeam: normalizedDraft.bansPerTeam
+  });
   const usedIds = [...normalizedDraft.bluePicks, ...normalizedDraft.redPicks, ...normalizedDraft.blueBans, ...normalizedDraft.redBans];
-  const stepInfo = getStepInfo(normalizedDraft.currentStep, normalizedDraft.rankMode, normalizedDraft.firstPickSide);
-  const draftStage = getDraftStage(normalizedDraft);
+  const stepInfo = getStepInfo(normalizedDraft.currentStep, normalizedDraft.rankMode, normalizedDraft.firstPickSide, normalizedDraft.bansPerTeam);
   const activeTeam = stepInfo ? normalizedDraft.currentTeam : null;
   const activePhase = stepInfo ? normalizedDraft.currentPhase : null;
   const activeSideKey = stepInfo ? getTeamListKey(stepInfo.team, stepInfo.phase) : null;
   const activeList = activeSideKey ? normalizedDraft[activeSideKey] : [];
-  const poolDisabledIds = stepInfo && activeList.length < 3 ? usedIds : brawlers.map((brawler) => brawler.id);
+  const activeLimit = activePhase === 'ban' ? normalizedDraft.bansPerTeam : PICKS_PER_TEAM;
+  const poolDisabledIds = stepInfo && activeList.length < activeLimit ? usedIds : brawlers.map((brawler) => brawler.id);
+  const bansComplete = normalizedDraft.blueBans.length >= normalizedDraft.bansPerTeam && normalizedDraft.redBans.length >= normalizedDraft.bansPerTeam;
+  const phaseHint = normalizedDraft.currentPhase === 'ban'
+    ? `Ban 进度：蓝方 ${normalizedDraft.blueBans.length} / ${normalizedDraft.bansPerTeam}，红方 ${normalizedDraft.redBans.length} / ${normalizedDraft.bansPerTeam}`
+    : normalizedDraft.currentPhase === 'pick'
+      ? 'Ban 已完成，进入 Pick 阶段'
+      : 'BP 已完成';
 
   const handlePoolToggle = (id: string) => {
-    if (!stepInfo || !activeSideKey || usedIds.includes(id) || activeList.length >= 3) return;
+    if (!stepInfo || !activeSideKey || usedIds.includes(id) || activeList.length >= activeLimit) return;
+    if (normalizedDraft.currentPhase === 'pick' && !bansComplete) return;
     setHistory((current) => [...current, normalizedDraft]);
     onDraftChange(normalizeDraftState({ ...normalizedDraft, [activeSideKey]: [...activeList, id], currentStep: normalizedDraft.currentStep + 1 }));
   };
@@ -46,6 +57,8 @@ export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
     onDraftChange(
       normalizeDraftState({
         ...normalizedDraft,
+        currentPhase: 'ban',
+        currentTeam: 'blue',
         currentStep: 0,
         blueBans: [],
         redBans: [],
@@ -120,15 +133,23 @@ export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
         </label>
         <div className="flex min-w-[150px] flex-col justify-center rounded-md border border-white/10 bg-white/[0.035] px-3">
           <span className="text-[11px] text-muted">{sideLabel(normalizedDraft.teamSide)}</span>
-          <span className="mt-1 text-xs font-black text-ink">{getDraftStageLabel(draftStage)}</span>
+          <span className="mt-1 text-xs font-black text-ink">当前阶段：{formatPhase(normalizedDraft.currentPhase)}</span>
           <span className="mt-1 text-[11px] text-muted">{formatAction(getActionForStep(stepInfo, normalizedDraft.teamSide))}</span>
         </div>
       </div>
 
+      <div className="mb-3 grid grid-cols-4 gap-2 rounded-lg border border-white/10 bg-white/[0.025] p-2 text-[11px] font-bold text-slate-300">
+        <span>蓝方 Ban：{normalizedDraft.blueBans.length} / {normalizedDraft.bansPerTeam}</span>
+        <span>红方 Ban：{normalizedDraft.redBans.length} / {normalizedDraft.bansPerTeam}</span>
+        <span>蓝方 Pick：{normalizedDraft.bluePicks.length} / {PICKS_PER_TEAM}</span>
+        <span>红方 Pick：{normalizedDraft.redPicks.length} / {PICKS_PER_TEAM}</span>
+        <span className="col-span-4 text-muted">{phaseHint}</span>
+      </div>
+
       <div className="grid min-h-0 flex-1 grid-cols-[170px_minmax(0,1fr)_170px] gap-3 overflow-hidden">
         <div className="flex min-h-0 flex-col gap-3">
-          <SlotGroup title="蓝方 Ban" icon={<ShieldBan size={15} />} tone="cyan" ids={normalizedDraft.blueBans} brawlers={brawlers} active={activeTeam === 'blue' && activePhase === 'ban'} />
-          <SlotGroup title="蓝方 Pick" icon={<Swords size={15} />} tone="cyan" ids={normalizedDraft.bluePicks} brawlers={brawlers} active={activeTeam === 'blue' && activePhase === 'pick'} />
+          <SlotGroup title="蓝方 Ban" icon={<ShieldBan size={15} />} tone="cyan" ids={normalizedDraft.blueBans} brawlers={brawlers} limit={normalizedDraft.bansPerTeam} active={activeTeam === 'blue' && activePhase === 'ban'} />
+          <SlotGroup title="蓝方 Pick" icon={<Swords size={15} />} tone="cyan" ids={normalizedDraft.bluePicks} brawlers={brawlers} limit={PICKS_PER_TEAM} active={activeTeam === 'blue' && activePhase === 'pick'} />
         </div>
 
         <div className="min-h-0 overflow-auto rounded-lg border border-white/10 bg-black/18 p-3">
@@ -151,8 +172,8 @@ export function DraftBoard({ brawlers, draft, search, onDraftChange }: Props) {
         </div>
 
         <div className="flex min-h-0 flex-col gap-3">
-          <SlotGroup title="红方 Ban" icon={<ShieldBan size={15} />} tone="red" ids={normalizedDraft.redBans} brawlers={brawlers} active={activeTeam === 'red' && activePhase === 'ban'} />
-          <SlotGroup title="红方 Pick" icon={<Swords size={15} />} tone="red" ids={normalizedDraft.redPicks} brawlers={brawlers} active={activeTeam === 'red' && activePhase === 'pick'} />
+          <SlotGroup title="红方 Ban" icon={<ShieldBan size={15} />} tone="red" ids={normalizedDraft.redBans} brawlers={brawlers} limit={normalizedDraft.bansPerTeam} active={activeTeam === 'red' && activePhase === 'ban'} />
+          <SlotGroup title="红方 Pick" icon={<Swords size={15} />} tone="red" ids={normalizedDraft.redPicks} brawlers={brawlers} limit={PICKS_PER_TEAM} active={activeTeam === 'red' && activePhase === 'pick'} />
         </div>
       </div>
     </section>
@@ -174,17 +195,28 @@ function formatAction(action: DraftState['nextAction']) {
   }[action];
 }
 
-function SlotGroup({ title, icon, tone, ids, brawlers, active = false }: { title: string; icon: ReactNode; tone: 'cyan' | 'red'; ids: string[]; brawlers: Brawler[]; active?: boolean }) {
+function formatPhase(phase: DraftState['currentPhase']) {
+  return {
+    ban: '禁用阶段',
+    pick: '选择阶段',
+    complete: 'BP 完成'
+  }[phase];
+}
+
+function SlotGroup({ title, icon, tone, ids, brawlers, limit, active = false }: { title: string; icon: ReactNode; tone: 'cyan' | 'red'; ids: string[]; brawlers: Brawler[]; limit: number; active?: boolean }) {
   const border = tone === 'cyan' ? 'border-neon/25' : 'border-danger/25';
   const activeClass = tone === 'cyan' ? 'border-neon/70 bg-neon/10 shadow-glow' : 'border-danger/70 bg-danger/10';
   return (
     <div className={`rounded-lg border ${active ? activeClass : `${border} bg-white/[0.035]`} p-3`}>
-      <div className="mb-2 flex items-center gap-2 text-xs font-black text-ink">
-        {icon}
-        {title}
+      <div className="mb-2 flex items-center justify-between gap-2 text-xs font-black text-ink">
+        <span className="flex items-center gap-2">
+          {icon}
+          {title}
+        </span>
+        <span className="text-[11px] text-muted">{ids.length} / {limit}</span>
       </div>
       <div className="grid grid-cols-3 gap-2">
-        {[0, 1, 2].map((index) => {
+        {Array.from({ length: limit }, (_, index) => {
           const brawler = brawlers.find((item) => item.id === ids[index]);
           return (
             <div key={index} className="flex h-12 items-center justify-center rounded-md border border-white/10 bg-black/25 text-xs text-muted">
