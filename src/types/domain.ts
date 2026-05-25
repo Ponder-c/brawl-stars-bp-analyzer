@@ -10,6 +10,13 @@ export type GameMode =
 
 export type StrategyMode = 'balanced' | 'safe' | 'aggressive' | 'pro' | 'ladder';
 export type MetaTier = 'S' | 'A' | 'B' | 'C' | 'D';
+export type VersionMetaTier = MetaTier | 'unknown';
+export type MetaTrend = 'rising' | 'falling' | 'stable' | 'new' | 'reworked' | 'unknown';
+export type BalanceChangeType = 'buff' | 'nerf' | 'rework' | 'bugfix' | 'none';
+export type MetaConfidence = 'high' | 'medium' | 'low';
+export type VersionSource = 'official' | 'brawlify' | 'manual' | 'mixed';
+export type MapPoolStatus = 'ranked' | 'competitive' | 'casual' | 'archived' | 'unknown';
+export type MapMetaQuality = 'verified' | 'estimated' | 'todo';
 export type TeamSide = 'blue' | 'red';
 export type DraftPhase = 'ban' | 'pick' | 'complete';
 export type DraftAction = 'ally_ban' | 'enemy_ban' | 'ally_pick' | 'enemy_pick' | 'complete';
@@ -113,8 +120,58 @@ export interface BrawlMap {
   dataQuality?: 'verified' | 'estimated' | 'todo';
   sourceNote?: string;
   lastUpdated?: string;
-  mapPoolStatus?: 'ranked' | 'competitive' | 'casual' | 'archived' | 'unknown';
+  mapPoolStatus?: MapPoolStatus;
   tags: string[];
+}
+
+export interface CurrentVersionMeta {
+  versionName: string;
+  patchDate: string;
+  seasonName?: string;
+  source: VersionSource;
+  sourceUrl?: string;
+  lastCheckedAt: string;
+  confidence: MetaConfidence;
+  notes: string;
+}
+
+export interface BrawlerMetaSnapshot {
+  brawlerId: string;
+  metaTier: VersionMetaTier;
+  previousMetaTier?: VersionMetaTier;
+  trend: MetaTrend;
+  lastBalanceChange?: {
+    patchDate: string;
+    type: BalanceChangeType;
+    summaryZh: string;
+    sourceUrl?: string;
+  };
+  winRate?: number;
+  useRate?: number;
+  banRate?: number;
+  pickRate?: number;
+  confidence: MetaConfidence;
+  dataSources: string[];
+  lastUpdated: string;
+}
+
+export interface MapMetaSnapshot {
+  mapId: string;
+  mapPoolStatus: MapPoolStatus;
+  currentRotation: boolean;
+  lastSeenAt?: string;
+  sourceUrl?: string;
+  dataQuality: MapMetaQuality;
+  lastUpdated: string;
+}
+
+export interface FreshnessStatus {
+  stale: boolean;
+  veryStale: boolean;
+  unknown: boolean;
+  confidence: MetaConfidence;
+  messages: string[];
+  ageDays?: number;
 }
 
 export interface KnowledgeEntry {
@@ -162,6 +219,14 @@ export interface ScoreBreakdown {
   versatility: number;
   draftStage: string;
   meta: number;
+  patchImpact: number;
+  trend: number;
+  liveData: number;
+  stalenessPenalty: number;
+  metaTierLabel: string;
+  metaTrendLabel: string;
+  metaConfidence: MetaConfidence;
+  metaStale: boolean;
   knowledge: number;
   total: number;
   reasons: string[];

@@ -1,5 +1,6 @@
 import { MapPinned } from 'lucide-react';
-import { getMapDisplayName, getModeDisplayName, translateTag, zhCN } from '../data/translations';
+import { checkMapFreshness, getMapMetaSnapshot } from '../data';
+import { getMapDisplayName, getModeDisplayName, translateMapPoolStatus, translateTag, zhCN } from '../data/translations';
 import type { BrawlMap, GameMode } from '../types/domain';
 
 interface Props {
@@ -16,6 +17,8 @@ export function MapSelector({ maps, selectedMode, selectedMapId, onModeChange, o
   const availableModes = modeOrder.filter((mode) => maps.some((map) => map.gameMode === mode));
   const modeMaps = maps.filter((map) => map.gameMode === selectedMode);
   const selectedMap = maps.find((map) => map.mapId === selectedMapId) ?? modeMaps[0];
+  const selectedMapMeta = selectedMap ? getMapMetaSnapshot(selectedMap.mapId) : null;
+  const selectedMapFreshness = selectedMapMeta ? checkMapFreshness(selectedMapMeta) : null;
 
   return (
     <aside className="panel flex h-full flex-col rounded-lg p-4">
@@ -56,6 +59,15 @@ export function MapSelector({ maps, selectedMode, selectedMapId, onModeChange, o
             <Metric label="墙体" value={selectedMap.wallDensity} />
             <Metric label="草丛" value={selectedMap.bushDensity} />
           </div>
+
+          {selectedMapMeta && (
+            <div className="mt-3 rounded-md border border-white/10 bg-white/[0.035] p-2 text-xs leading-5 text-slate-300">
+              <div>地图池：{translateMapPoolStatus(selectedMapMeta.mapPoolStatus)} / {selectedMapMeta.currentRotation ? '当前轮换' : '未确认当前轮换'}</div>
+              <div>地图数据更新：{selectedMapMeta.lastUpdated}</div>
+              {selectedMapFreshness?.stale && <div className="text-ember">地图池数据可能过期或状态不确定。</div>}
+              {selectedMapMeta.mapPoolStatus === 'archived' && <div className="text-ember">该地图可能不属于当前版本排位池。</div>}
+            </div>
+          )}
 
           <div className="mt-3 flex flex-wrap gap-2">
             {selectedMap.tags.map((tag) => (

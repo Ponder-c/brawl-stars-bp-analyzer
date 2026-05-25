@@ -5,7 +5,10 @@ import { StrategyToggle } from './StrategyToggle';
 
 interface Props {
   currentVersion: string;
+  patchDate: string;
   dataUpdatedAt: string;
+  dataConfidence: string;
+  isStale: boolean;
   search: string;
   onSearchChange: (value: string) => void;
   strategyMode: StrategyMode;
@@ -14,7 +17,7 @@ interface Props {
   onConsiderMetaChange: (value: boolean) => void;
 }
 
-export function TopBar({ currentVersion, dataUpdatedAt, search, onSearchChange, strategyMode, onStrategyChange, considerMeta, onConsiderMetaChange }: Props) {
+export function TopBar({ currentVersion, patchDate, dataUpdatedAt, dataConfidence, isStale, search, onSearchChange, strategyMode, onStrategyChange, considerMeta, onConsiderMetaChange }: Props) {
   return (
     <header className="panel scanline flex items-center justify-between gap-4 rounded-lg px-5 py-4">
       <div className="flex items-center gap-4">
@@ -25,7 +28,10 @@ export function TopBar({ currentVersion, dataUpdatedAt, search, onSearchChange, 
           <h1 className="text-xl font-black tracking-normal text-ink">荒野乱斗 BP 分析器</h1>
           <div className="mt-1 flex gap-3 text-xs text-muted">
             <span>{zhCN.ui.currentVersion} {currentVersion}</span>
+            <span>版本日期 {patchDate}</span>
             <span>{zhCN.ui.dataUpdated} {dataUpdatedAt}</span>
+            <span>可信度 {dataConfidence}</span>
+            {isStale && <span className="text-ember">数据可能过期</span>}
           </div>
         </div>
       </div>

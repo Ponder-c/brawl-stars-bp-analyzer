@@ -12,6 +12,7 @@ import type {
   TeamAnalysis
 } from '../types/domain';
 import { draftWeights, getDraftStage, getDraftStageReason } from './draft';
+import { calculateVersionAwareScore } from './versionScoring';
 
 type RoleFlag =
   | 'tank'
@@ -51,14 +52,6 @@ export interface CompositionProfile {
   lacksSurvivability: boolean;
   lacksObjectivePressure: boolean;
 }
-
-const tierScore: Record<MetaTier, number> = {
-  S: 10,
-  A: 7,
-  B: 4,
-  C: 1,
-  D: -3
-};
 
 const strategyWeights: Record<
   StrategyMode,
@@ -397,6 +390,10 @@ export function calculateTagCounterScore(candidate: Brawler, enemyProfile: Compo
     score += 14;
     reasons.push('针对敌方已选坦克英雄，该英雄具备反坦克、控制或持续输出能力，能限制敌方正面推进。');
   }
+  if (enemyProfile.hasTank && !hasTag(tags, 'anti_tank', 'safe_dps', 'area_control', 'crowd_control')) {
+    score -= 6;
+    risks.push('敌方已有坦克，但该英雄处理前排能力有限，不能只靠版本强度优先。');
+  }
   if (enemyProfile.hasAssassin && hasTag(tags, 'anti_assassin', 'crowd_control', 'shield', 'sustain')) {
     score += 14;
     reasons.push('敌方已经选择刺客英雄，该英雄具备反刺客、控制或高生存能力，能降低我方后排被切入的风险。');
@@ -531,7 +528,7 @@ export function calculateKnowledgeScore(candidate: Brawler, map: BrawlMap, knowl
 }
 
 export function calculateMetaScore(brawler: Brawler, considerMeta: boolean) {
-  return considerMeta ? tierScore[brawler.metaTier] : 0;
+  return considerMeta ? calculateVersionAwareScore(brawler, { map: {} as BrawlMap }).metaScore : 0;
 }
 
 function calculateSafetyScore(candidate: Brawler, enemyProfile: CompositionProfile) {
@@ -571,7 +568,12 @@ export function calculatePickScore(
   const tagCounter = calculateTagCounterScore(candidate, enemyProfile);
   const allyNeed = calculateAllyNeedScore(candidate, allyProfile, map);
   const knowledgeScore = calculateKnowledgeScore(candidate, map, knowledge);
-  const meta = calculateMetaScore(candidate, draft.considerMeta);
+  const versionScore = calculateVersionAwareScore(candidate, { map });
+  const meta = draft.considerMeta ? versionScore.metaScore : 0;
+  const patchImpact = draft.considerMeta ? versionScore.patchImpact : 0;
+  const trend = draft.considerMeta ? versionScore.trend : 0;
+  const liveData = draft.considerMeta ? versionScore.liveData : 0;
+  const stalenessPenalty = versionScore.stalenessPenalty;
   const safety = calculateSafetyScore(candidate, enemyProfile);
   const versatility = calculateVersatilityScore(candidate);
   const generatedCounterReasons = generateCounterReasons(candidate, enemyBrawlers, enemyProfile, allyProfile);
@@ -590,11 +592,16 @@ export function calculatePickScore(
       safety * weights.safety +
       versatility * weights.versatility +
       meta * weights.meta * strategy.meta +
+      patchImpact * 0.8 +
+      trend * 0.55 +
+      liveData * 0.4 -
+      stalenessPenalty * 0.7 +
       knowledgeScore.score * strategy.knowledge * 0.6 -
       riskScore * weights.risk * strategy.risk
   );
   const reasons = [
     getDraftStageReason(draft),
+    ...versionScore.reasons,
     ...directCounter.reasons,
     ...tagCounter.reasons,
     ...generatedCounterReasons,
@@ -618,6 +625,14 @@ export function calculatePickScore(
     versatility: Math.round(versatility),
     draftStage: stage,
     meta: Math.round(meta),
+    patchImpact: Math.round(patchImpact),
+    trend: Math.round(trend),
+    liveData: Math.round(liveData),
+    stalenessPenalty: Math.round(stalenessPenalty),
+    metaTierLabel: versionScore.brawlerMeta.metaTier,
+    metaTrendLabel: versionScore.brawlerMeta.trend,
+    metaConfidence: versionScore.freshness.confidence,
+    metaStale: versionScore.freshness.stale,
     knowledge: Math.round(knowledgeScore.score),
     total: Math.round(total),
     reasons: reasons.length ? Array.from(new Set(reasons)).slice(0, 6) : ['该英雄在当前地图和模式下综合适配度较高，可作为稳定补位选择。'],
@@ -629,6 +644,7 @@ export function calculatePickScore(
 export function calculateBanScore(candidate: Brawler, map: BrawlMap, draft: DraftState, allBrawlers: Brawler[], knowledge: KnowledgeEntry[]) {
   const pseudoDraft: DraftState = { ...draft, allyPicks: [], enemyPicks: draft.allyPicks };
   const baseScore = calculatePickScore(candidate, map, pseudoDraft, allBrawlers, knowledge);
+  const versionScore = calculateVersionAwareScore(candidate, { map });
   const allyBrawlers = draft.allyPicks.map((id) => allBrawlers.find((b) => b.id === id)).filter(Boolean) as Brawler[];
   const reasons: string[] = [];
   const protectsAgainst: string[] = [];
@@ -640,6 +656,9 @@ export function calculateBanScore(candidate: Brawler, map: BrawlMap, draft: Draf
   const weights = draftWeights.ban;
   let threat =
     baseScore.meta * weights.meta +
+    versionScore.patchImpact * 0.8 +
+    versionScore.trend * 0.5 -
+    versionScore.stalenessPenalty * 0.4 +
     baseScore.mapFit * weights.mapFit +
     baseScore.modeFit * weights.modeFit +
     baseScore.counter * weights.directCounter +
@@ -662,11 +681,16 @@ export function calculateBanScore(candidate: Brawler, map: BrawlMap, draft: Draf
   }
 
   if (candidate.metaTier === 'S') reasons.push('当前版本强度高，容易被首抢。');
+  if (versionScore.brawlerMeta.metaTier === 'S' || versionScore.brawlerMeta.metaTier === 'A') reasons.push('该英雄当前版本强度较高，且在这张地图上适配度高，适合作为优先禁用目标。');
+  if (versionScore.brawlerMeta.lastBalanceChange?.type === 'buff') reasons.push('该英雄近期增强，敌方可能优先抢用，可以考虑禁用。');
+  if (versionScore.brawlerMeta.lastBalanceChange?.type === 'nerf') reasons.push('该英雄近期被削弱，禁用优先级已相应下调。');
   if (baseScore.mapFit > 55) reasons.push('地图适配度高。');
   if (baseScore.modeFit > 55) reasons.push('模式收益高。');
   if (draft.nextAction.endsWith('_ban')) reasons.unshift(getDraftStageReason(draft));
   if (allyWeaknessThreat > 0) reasons.push('该英雄可能克制我方已选体系，禁用可以降低后续 BP 风险。');
   if (baseScore.counter > 15) reasons.push('该英雄在当前对局中具备明显威胁，适合作为拒抢或防克制禁用。');
+  if (versionScore.freshness.stale) reasons.push('该推荐使用的数据可能过期，请结合当前版本实际环境确认。');
+  if (draft.teamSide === 'red') reasons.push('对方作为先选方可能优先抢该英雄，因此我方可以考虑禁用。');
   if (!reasons.length) reasons.push('禁用建议基于当前地图适配、模式收益和潜在首抢威胁综合计算。');
   reasons.push(...protectsAgainst);
 

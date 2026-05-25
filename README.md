@@ -114,6 +114,29 @@ scripts/
 
 当前推荐系统不等同于胜率预测模型，也不会保证推荐结果一定正确。请结合实际地图、队友英雄池、熟练度、对手阵容和比赛规则进行判断。
 
+## 版本与 Meta 数据维护
+
+版本相关数据位于：
+
+```text
+src/data/versionMeta.ts
+src/data/patchNotes.ts
+src/data/metaSnapshot.ts
+src/data/versionWeights.ts
+src/data/freshness.ts
+```
+
+维护建议：
+
+- 更新 `currentVersionMeta` 时填写版本名、补丁日期、来源、来源链接、检查时间和可信度。
+- 更新 `patchNotes` 时只记录可追溯的平衡调整，不确定的内容用中文说明并降低可信度。
+- 更新 `metaSnapshot` 时按英雄维护 `metaTier`、趋势、最近平衡调整、数据来源和更新时间。
+- 没有真实胜率、使用率、Ban 率、Pick 率时留空，不要编造数据。
+- 不确定强度使用 `unknown`，不确定来源使用 `confidence: "low"`。
+- 地图池状态不确定时使用 `unknown` 或 `archived`，不要删除地图。
+- `freshness.ts` 会按更新时间提示数据是否可能过期；超过 14 天标记可能过期，超过 30 天降低可信度。
+- 推荐结果仅供 BP 分析参考，不能替代人工核对和当前版本实战判断。
+
 ## 免责声明
 
 本项目是非官方工具，与 Supercell 没有任何官方关联，也未获得 Supercell 的赞助、认可或背书。

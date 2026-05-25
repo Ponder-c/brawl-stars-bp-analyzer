@@ -426,6 +426,36 @@ export function translateMapPoolStatus(value?: string) {
   return value ? zhCN.mapPoolStatus[value as keyof typeof zhCN.mapPoolStatus] ?? todoLabel(value) : zhCN.mapPoolStatus.unknown;
 }
 
+export function translateMetaTrend(value?: string) {
+  return {
+    rising: '上升',
+    falling: '下降',
+    stable: '稳定',
+    new: '新英雄',
+    reworked: '重做',
+    unknown: '未知'
+  }[value ?? 'unknown'] ?? todoLabel(value ?? 'unknown');
+}
+
+export function translateBalanceChangeType(value?: string) {
+  return {
+    buff: '最近增强',
+    nerf: '最近削弱',
+    rework: '重做',
+    bugfix: '问题修复',
+    none: '无',
+    undefined: '无'
+  }[value ?? 'undefined'] ?? todoLabel(value ?? 'unknown');
+}
+
+export function translateConfidence(value?: string) {
+  return {
+    high: '高',
+    medium: '中',
+    low: '低'
+  }[value ?? 'low'] ?? todoLabel(value ?? 'unknown');
+}
+
 export function translateMetaTier(value: MetaTier) {
   return zhCN.metaTier[value] ?? todoLabel(value);
 }

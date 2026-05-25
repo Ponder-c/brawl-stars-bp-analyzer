@@ -1,7 +1,8 @@
 import { AlertTriangle, Ban, Crosshair, ShieldCheck, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { getDraftStage, getDraftStageLabel, getDraftStageReason, sideLabel } from '../algorithm/draft';
-import { getBrawlerDisplayName, translateReason, translateRole, translateTag, zhCN } from '../data/translations';
+import { checkDataFreshness, currentVersionMeta, getBrawlerMetaSnapshot } from '../data';
+import { getBrawlerDisplayName, translateBalanceChangeType, translateConfidence, translateMetaTrend, translateReason, translateRole, translateTag, zhCN } from '../data/translations';
 import type { BanRecommendation, Brawler, DraftState, PickRecommendation } from '../types/domain';
 import { scoreTone } from '../utils/format';
 
@@ -102,6 +103,8 @@ function SectionTitle({ icon, title }: { icon: ReactNode; title: string }) {
 }
 
 function RecommendationCard({ item, rank }: { item: PickRecommendation; rank: number }) {
+  const brawlerMeta = getBrawlerMetaSnapshot(item.brawler.id);
+  const freshness = checkDataFreshness(brawlerMeta, currentVersionMeta);
   return (
     <article className="rounded-lg border border-white/10 bg-white/[0.04] p-3 shadow-glow">
       <div className="flex items-start justify-between gap-3">
@@ -122,6 +125,16 @@ function RecommendationCard({ item, rank }: { item: PickRecommendation; rank: nu
         <Score label={zhCN.ui.mapScore} value={item.score.mapFit} />
         <Score label={zhCN.ui.modeScore} value={item.score.modeFit} />
         <Score label={zhCN.ui.synergyScore} value={item.score.synergy} />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-1 text-[11px] text-slate-300">
+        <span className="rounded border border-white/10 bg-black/20 px-2 py-1">版本强度：{brawlerMeta.metaTier}</span>
+        <span className="rounded border border-white/10 bg-black/20 px-2 py-1">趋势：{translateMetaTrend(brawlerMeta.trend)}</span>
+        <span className="rounded border border-white/10 bg-black/20 px-2 py-1">{translateBalanceChangeType(brawlerMeta.lastBalanceChange?.type)}</span>
+        <span className={`rounded border px-2 py-1 ${freshness.stale ? 'border-ember/25 bg-ember/10 text-ember' : 'border-white/10 bg-black/20'}`}>
+          {freshness.stale ? '数据可能过期' : `可信度：${translateConfidence(freshness.confidence)}`}
+        </span>
+        <span className="col-span-2 rounded border border-white/10 bg-black/20 px-2 py-1">来源：{brawlerMeta.dataSources.join(' / ')}</span>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1">

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { brawlers, knowledgeBase, maps, metaInfo } from './data';
+import { brawlers, checkDataFreshness, currentVersionMeta, getBrawlerMetaSnapshot, knowledgeBase, maps } from './data';
 import { buildAnalysis, recommendBans, recommendCompositions, recommendCounterPicks, recommendPicks } from './algorithm/recommendations';
 import { normalizeDraftState } from './algorithm/draft';
 import { AnalysisPanel } from './components/AnalysisPanel';
@@ -34,6 +34,7 @@ export default function App() {
 
   const selectedMap = useMemo(() => maps.find((map) => map.mapId === selectedMapId) ?? maps[0], [selectedMapId]);
   const normalizedDraft = useMemo(() => normalizeDraftState(draft), [draft]);
+  const globalFreshness = useMemo(() => checkDataFreshness(getBrawlerMetaSnapshot('frank'), currentVersionMeta), []);
 
   const recommendations = useMemo(() => recommendPicks(brawlers, selectedMap, normalizedDraft, knowledgeBase), [selectedMap, normalizedDraft]);
   const counters = useMemo(() => recommendCounterPicks(brawlers, selectedMap, normalizedDraft, knowledgeBase), [selectedMap, normalizedDraft]);
@@ -51,8 +52,11 @@ export default function App() {
     <main className="min-h-screen p-5 text-ink">
       <div className="mx-auto flex max-w-[1800px] flex-col gap-4">
         <TopBar
-          currentVersion={metaInfo.currentVersion}
-          dataUpdatedAt={metaInfo.dataUpdatedAt}
+          currentVersion={currentVersionMeta.versionName}
+          patchDate={currentVersionMeta.patchDate}
+          dataUpdatedAt={currentVersionMeta.lastCheckedAt}
+          dataConfidence={globalFreshness.confidence}
+          isStale={globalFreshness.stale}
           search={search}
           onSearchChange={setSearch}
           strategyMode={draft.strategyMode}

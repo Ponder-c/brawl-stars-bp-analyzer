@@ -1,6 +1,10 @@
 export { brawlers } from './brawlers';
 export { maps } from './maps';
 export { metaInfo } from './meta';
+export { currentVersionMeta } from './versionMeta';
+export { brawlerMetaSnapshot, defaultBrawlerMetaSnapshot, getBrawlerMetaSnapshot, getMapMetaSnapshot, mapMetaSnapshot } from './metaSnapshot';
+export { patchNotes } from './patchNotes';
+export { checkDataFreshness, checkMapFreshness } from './freshness';
 export { knowledgeBase } from './knowledgeBase';
 export { externalHeroCatalog } from './externalHeroCatalog';
 export { externalMapCatalog } from './externalMapCatalog';
